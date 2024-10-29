@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import gc
 import time
@@ -14,11 +12,7 @@ import onnxruntime
 
 from onnx2pytorch import ConvertModel
 
-warnings.filterwarnings("ignore")
-
-BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-# Change the current working directory to the base path
-os.chdir(BASE_PATH)
+warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
 if platform.system() == "Darwin":
     is_windows = False
@@ -29,8 +23,6 @@ elif platform.system() == "Linux":
 elif platform.system() == "Windows":
     is_windows = True
     is_macos = False
-
-MODELS_DIR = os.path.join(BASE_PATH, 'models')
 
 def clear_gpu_cache():
     gc.collect()
@@ -56,7 +48,8 @@ class STFT:
         batch_dims = x.shape[:-2]
         c, t = x.shape[-2:]
         x = x.reshape([-1, t])
-        x = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, window=window, center=True, return_complex=False)
+        x = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, window=window, center=True, return_complex=True)
+        x = torch.view_as_real(x)
         x = x.permute([0, 3, 1, 2])
         x = x.reshape([*batch_dims, c, 2, -1, x.shape[-1]]).reshape([*batch_dims, c * 2, -1, x.shape[-1]])
 
@@ -105,7 +98,7 @@ class ZenDemixer:
     def __init__(self, use_gpu=True):
         if is_macos and use_gpu and torch.backends.mps.is_available():
             self.device = 'mps'
-        elif use_gpu and torch.cuda.is_available(): # and not self.use_opencl:
+        elif use_gpu and torch.cuda.is_available():
             self.device = 'cuda'
         else:
             self.device = 'cpu'
@@ -131,58 +124,6 @@ class ZenDemixer:
             self.model = ConvertModel(onnx.load(self.model_path))
             self.model.to(self.device).eval()
 
-    def demix_file(self, input_path, output_path):
-        print('loading waveform')
-
-        # load waveform
-        # TODO: pass samplerate here?
-        mix, samplerate = librosa.load(input_path, mono=False, sr=None)
-        if mix.ndim == 1:
-            mix = np.asfortranarray([mix, mix])
-        else:
-            assert mix.shape[0] == 2, 'Stereo audio is required'
-
-        # run inference
-        source = self.demix(mix)
-        
-        # save output
-        soundfile.write(output_path, source.T, samplerate=samplerate)
-
-        clear_gpu_cache()
-
-    def demix(self, mix, buffer_size=None):
-        chunk_size = self.chunk_size
-        channel_count, sample_count = mix.shape
-
-        # pad the mix to the nearest chunk size
-        # this makes the logic much simpler because sample_count is divisible by chunk_size
-        pad_size = chunk_size - (sample_count % chunk_size)
-        if pad_size > 0:
-            sample_count += pad_size
-            padding = np.zeros((channel_count, pad_size), dtype=np.float32)
-            mix = np.concatenate((mix, padding), axis=-1)
-
-        result = np.zeros((channel_count, sample_count), dtype=np.float32)
-        if not buffer_size:
-            buffer_size = chunk_size
-
-        for start in range(0, sample_count, buffer_size):
-            stime = time.perf_counter()
-
-            end = start + buffer_size
-            chunk = mix[:, start:end]
-            if chunk_size != buffer_size:
-                padding = np.zeros((channel_count, chunk_size - buffer_size), dtype=np.float32)
-                chunk = np.concatenate((chunk, padding), axis=-1)
-
-            chunk_tensor = torch.tensor([chunk], dtype=torch.float32).to(self.device)
-            spec_pred = self.run_model(chunk_tensor, adjust=self.adjust)
-            result[:, start:end] = spec_pred[..., :buffer_size]
-
-            print('%.2f%% (%.2fs)' % (100. * end / sample_count, time.perf_counter() - stime))
-
-        return result[:, :sample_count - pad_size]
-
     def run_model(self, mix, adjust=1.0):
         """
         expects `mix` to be a `torch.tensor` of shape (batch_size=1, channels=2, samples=self.chunk_size)
@@ -198,6 +139,67 @@ class ZenDemixer:
 
         tensor = torch.tensor(spec_pred).to(self.device)
         return self.stft.inverse(tensor).cpu().detach().numpy()
+
+    def demix(self, mix, buffer_size=None):
+        """
+        the model always processes chunks of self.chunk_size samples
+
+        buffer_size can be used to process in smaller chunks by zero padding the buffer
+        to self.chunk_size, hence buffer_size must be less than or equal to self.chunk_size
+        """
+        chunk_size = self.chunk_size
+        channel_count, sample_count = mix.shape
+        assert channel_count == 2, 'Stereo audio is required'
+
+        # pad the mix to the nearest chunk size
+        # this makes the logic much simpler because sample_count is divisible by chunk_size
+        pad_size = chunk_size - (sample_count % chunk_size)
+        if pad_size > 0:
+            sample_count += pad_size
+            padding = np.zeros((channel_count, pad_size), dtype=np.float32)
+            mix = np.concatenate((mix, padding), axis=-1)
+
+        result = np.zeros((channel_count, sample_count), dtype=np.float32)
+        if not buffer_size:
+            buffer_size = chunk_size
+        else:
+            assert buffer_size <= chunk_size, 'buffer_size must be less than or equal to chunk_size'
+
+        for start in range(0, sample_count, buffer_size):
+            stime = time.perf_counter()
+
+            end = start + buffer_size
+            chunk = mix[:, start:end]
+            if chunk_size != buffer_size:
+                padding = np.zeros((channel_count, chunk_size - buffer_size), dtype=np.float32)
+                chunk = np.concatenate((chunk, padding), axis=-1)
+
+            chunk_tensor = torch.tensor(np.array([chunk]), dtype=torch.float32).to(self.device)
+            spec_pred = self.run_model(chunk_tensor, adjust=self.adjust)
+            result[:, start:end] = spec_pred[..., :buffer_size]
+
+            print('%.2f%% (%.2fs)' % (100. * end / sample_count, time.perf_counter() - stime))
+
+        return result[:, :sample_count - pad_size]
+
+    def demix_file(self, input_path, output_path):
+        print('loading waveform')
+
+        # load waveform
+        # TODO: pass samplerate here?
+        mix, samplerate = librosa.load(input_path, mono=False, sr=None)
+        if mix.ndim == 1:
+            mix = np.asfortranarray([mix, mix])
+
+        # run inference
+        print('demixing')
+        source = self.demix(mix)
+        
+        # save output
+        print('saving output')
+        soundfile.write(output_path, source.T, samplerate=samplerate)
+
+        clear_gpu_cache()
 
 def process_simple(input_path, output_path):
     seperator = ZenDemixer(use_gpu=True)
