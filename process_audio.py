@@ -54,7 +54,8 @@ def main():
             # len(audio_data) == (frames_per_buffer * channels)
             audio_data_compact = np.array(np.frombuffer(input_data, dtype=np.float32))
             # audio_data_compact has interleaved samples for each channel, convert to separate channels
-            audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
+            audio_data = audio_data_compact.reshape((-1, channels)).transpose()
+            # audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
 
             input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
 
@@ -63,15 +64,16 @@ def main():
             #     #continue
 
             # TODO: pad buffer and process
-            if input_buffer.shape[1] >= chunk_size:
+            if input_buffer.shape[1] >= 3 * chunk_size:
                 print('demixing')
                 output_data = demixer.demix(input_buffer[:, :chunk_size])
                 print('writing output')
-                output_data_compact = np.array([], dtype=np.float32)
-                for i in range(0, output_data.shape[1]):
-                    output_data_compact = np.append(output_data_compact, output_data[0, i])
-                    output_data_compact = np.append(output_data_compact, output_data[1, i])
+                # output_data_compact = np.array([], dtype=np.float32)
+                # for i in range(0, output_data.shape[1]):
+                #     output_data_compact = np.append(output_data_compact, output_data[0, i])
+                #     output_data_compact = np.append(output_data_compact, output_data[1, i])
 
+                output_data_compact = output_data.reshape((channels, -1)).transpose().flatten()
                 output_stream.write(output_data_compact.tobytes())
                 print('output written')
                 input_buffer = input_buffer[:, chunk_size:]
