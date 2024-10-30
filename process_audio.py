@@ -1,11 +1,18 @@
-import pyaudiowpatch as pyaudio
-import numpy as np
 import zen
+import time
+import queue
+import threading
+import numpy as np
+import pyaudiowpatch as pyaudio
 
-frames_per_buffer = 1024
+# from scipy.signal import resample
+
+use_gpu = False
+
+frames_per_buffer = 4096
 channels = 2
 samplerate = 48000
-chunk_size = 3 * samplerate # 1024 * 1023
+chunk_size = 1024 * 1023
 
 # volume between 0..1
 volume = 0.5
@@ -13,9 +20,71 @@ volume = 0.5
 input_device_index = 21
 output_device_index = 5
 
-def main():
+input_queue = queue.Queue()
+output_queue = queue.Queue()
+
+def zen_thread():
     print('initializing')
-    demixer = zen.ZenDemixer()
+    demixer = zen.ZenDemixer(use_gpu=use_gpu)
+
+    while True:
+        input_buffer = input_queue.get()
+        print('demixing')
+        output_buffer = demixer.demix(input_buffer)
+        print('writing output')
+        output_queue.put(output_buffer)
+
+def audio_output_thread(output_stream):
+    while True:
+        
+        if output_queue.empty():
+            # TODO: output some default soundwave
+            continue
+
+        print('got demixed output chunk')
+        output_data = output_queue.get()
+        output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
+        print('writing output')
+        output_stream.write(output_data_compact.tobytes())
+        print('output written')
+
+
+def process_forever(input_stream, output_stream):
+    thread = threading.Thread(target=audio_output_thread, args=(output_stream,))
+    thread.start()
+
+    input_buffer = np.zeros((channels, 0), dtype=np.float32)
+
+    while True:
+        # len(input_data) == (frames_per_buffer * channels * sizeof(float))
+        input_data = input_stream.read(frames_per_buffer)
+
+        # len(audio_data) == (frames_per_buffer * channels)
+        audio_data_compact = np.array(np.frombuffer(input_data, dtype=np.float32))
+
+        # demix_samplerate = 44100
+        # audio_data_compact = resample(audio_data_compact, int(len(audio_data_compact) * demix_samplerate / samplerate))
+
+        # audio_data_compact has interleaved samples for each channel, convert to separate channels
+        audio_data = audio_data_compact.reshape((-1, channels)).transpose()
+        # audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
+
+        if not audio_data.any():
+            print('empty buffer')
+            #continue
+
+        input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
+
+        if input_buffer.shape[1] >= chunk_size:
+            print('input buffer filled, processing')
+            input_queue.put(input_buffer[:, :chunk_size])
+            input_buffer = input_buffer[:, chunk_size:]
+
+
+
+def main():
+    thread = threading.Thread(target=zen_thread)
+    thread.start()
 
     # Initialize PyAudio
     p = pyaudio.PyAudio()
@@ -43,55 +112,7 @@ def main():
 
         print("Starting audio processing. Press Ctrl+C to stop.")
 
-        input_buffer = np.zeros((channels, 0), dtype=np.float32)
-        output_buffer = np.zeros((channels, 0), dtype=np.float32)
-
-        # Main processing loop
-        while True:
-            # len(input_data) == (frames_per_buffer * channels * sizeof(float))
-            input_data = input_stream.read(frames_per_buffer)
-
-            # len(audio_data) == (frames_per_buffer * channels)
-            audio_data_compact = np.array(np.frombuffer(input_data, dtype=np.float32))
-            # audio_data_compact has interleaved samples for each channel, convert to separate channels
-            audio_data = audio_data_compact.reshape((-1, channels)).transpose()
-            # audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
-
-            input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
-
-            # if not audio_data.any():
-            #     print('empty buffer')
-            #     #continue
-
-            # TODO: pad buffer and process
-            if input_buffer.shape[1] >= 3 * chunk_size:
-                print('demixing')
-                output_data = demixer.demix(input_buffer[:, :chunk_size])
-                print('writing output')
-                # output_data_compact = np.array([], dtype=np.float32)
-                # for i in range(0, output_data.shape[1]):
-                #     output_data_compact = np.append(output_data_compact, output_data[0, i])
-                #     output_data_compact = np.append(output_data_compact, output_data[1, i])
-
-                output_data_compact = output_data.reshape((channels, -1)).transpose().flatten()
-                output_stream.write(output_data_compact.tobytes())
-                print('output written')
-                input_buffer = input_buffer[:, chunk_size:]
-
-            # TODO: process buffer
-            # Process the audio data (example: increase volume)
-            # audio_data = [audio_data[i] * ((i % 10) / 10) for i in range(len(audio_data))]
-            
-            # Ensure the processed audio is within the valid range (-1 to 1)
-            # audio_data = np.clip(audio_data, -1, 1)
-            # Convert the processed audio back to bytes
-            #output_data = (buffer[:, :frames_per_buffer] * volume)
-            
-            # if output_buffer:
-            #     # Write the processed audio to the output stream
-            #     output_data = output_buffer
-            #     output_stream.write(output_data.tobytes())
-
+        process_forever(input_stream, output_stream)
 
     except KeyboardInterrupt:
         print("\nStopping audio processing.")

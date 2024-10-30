@@ -154,6 +154,9 @@ class ZenDemixer:
         # pad the mix to the nearest chunk size
         # this makes the logic much simpler because sample_count is divisible by chunk_size
         pad_size = chunk_size - (sample_count % chunk_size)
+        if pad_size == chunk_size:
+            pad_size = 0
+
         if pad_size > 0:
             sample_count += pad_size
             padding = np.zeros((channel_count, pad_size), dtype=np.float32)
@@ -183,10 +186,9 @@ class ZenDemixer:
         return result[:, :sample_count - pad_size]
 
     def demix_file(self, input_path, output_path):
-        print('loading waveform')
-
         # load waveform
         # TODO: pass samplerate here?
+        print('loading waveform')
         mix, samplerate = librosa.load(input_path, mono=False, sr=None)
         if mix.ndim == 1:
             mix = np.asfortranarray([mix, mix])
@@ -194,7 +196,7 @@ class ZenDemixer:
         # run inference
         print('demixing')
         source = self.demix(mix)
-        
+
         # save output
         print('saving output')
         soundfile.write(output_path, source.T, samplerate=samplerate)
@@ -208,7 +210,8 @@ def process_simple(input_path, output_path):
 
 if __name__ == "__main__":
     # audio_file = r'./Eminem - Rap God.mp3'
-    input_path = r'./input/Why iii Love The Moon.mp4'
+    # input_path = r'./input/Why iii Love The Moon.mp4'
+    input_path = r'./input_buffer.wav'
     output_dir = './output'
 
     filename = os.path.basename(input_path)
