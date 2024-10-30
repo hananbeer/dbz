@@ -7,15 +7,18 @@ import pyaudiowpatch as pyaudio
 
 # from scipy.signal import resample
 
-use_gpu = False
+use_gpu = True
 
 frames_per_buffer = 4096
 channels = 2
 samplerate = 48000
-chunk_size = 1024 * 1023
+# this still works as low as 1024 * 50 but the delay is only marginally lower
+# at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
+# at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
+buffer_size = 1024 * 1023
 
 # volume between 0..1
-volume = 0.5
+#volume = 0.5
 
 input_device_index = 21
 output_device_index = 5
@@ -27,12 +30,23 @@ def zen_thread():
     print('initializing')
     demixer = zen.ZenDemixer(use_gpu=use_gpu)
 
+    back_buffer = np.zeros((channels, 0), dtype=np.float32)
+
+    assert buffer_size <= demixer.chunk_size, 'buffer_size must be less than or equal to demixer.chunk_size'
+
     while True:
         input_buffer = input_queue.get()
+        # take the last chunk_size samples
+        if len(input_buffer) < demixer.chunk_size:
+            remainder = demixer.chunk_size - len(input_buffer)
+            input_buffer = np.concatenate((back_buffer[:, -remainder:], input_buffer), axis=1)
+
         print('demixing')
-        output_buffer = demixer.demix(input_buffer)
+        output_buffer = demixer.demix(input_buffer) #, buffer_size=demixer.chunk_size)
         print('writing output')
-        output_queue.put(output_buffer)
+        output_queue.put(output_buffer[:, -buffer_size:])
+
+        back_buffer = back_buffer[:, -demixer.chunk_size:]
 
 def audio_output_thread(output_stream):
     while True:
@@ -75,10 +89,10 @@ def process_forever(input_stream, output_stream):
 
         input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
 
-        if input_buffer.shape[1] >= chunk_size:
+        if input_buffer.shape[1] >= buffer_size:
             print('input buffer filled, processing')
-            input_queue.put(input_buffer[:, :chunk_size])
-            input_buffer = input_buffer[:, chunk_size:]
+            input_queue.put(input_buffer[:, :buffer_size])
+            input_buffer = input_buffer[:, buffer_size:]
 
 
 

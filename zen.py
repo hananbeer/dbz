@@ -149,11 +149,16 @@ class ZenDemixer:
         """
         chunk_size = self.chunk_size
         channel_count, sample_count = mix.shape
-        assert channel_count == 2, 'Stereo audio is required'
+        assert sample_count > 0, 'no samples'
+        assert channel_count == 2, 'stereo audio is required'
 
         # pad the mix to the nearest chunk size
         # this makes the logic much simpler because sample_count is divisible by chunk_size
-        pad_size = sample_count % chunk_size
+        if sample_count < chunk_size:
+            pad_size = chunk_size - sample_count
+        else:
+            pad_size = chunk_size - (sample_count % chunk_size)
+
         if pad_size > 0:
             sample_count += pad_size
             padding = np.zeros((channel_count, pad_size), dtype=np.float32)
