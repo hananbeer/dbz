@@ -153,10 +153,7 @@ class ZenDemixer:
 
         # pad the mix to the nearest chunk size
         # this makes the logic much simpler because sample_count is divisible by chunk_size
-        pad_size = chunk_size - (sample_count % chunk_size)
-        if pad_size == chunk_size:
-            pad_size = 0
-
+        pad_size = sample_count % chunk_size
         if pad_size > 0:
             sample_count += pad_size
             padding = np.zeros((channel_count, pad_size), dtype=np.float32)
