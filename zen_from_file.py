@@ -1,7 +1,12 @@
+try:
+    import librosa
+except:
+    print('missing required module librosa, install with:\n\tpip install librosa==0.9.2')
+    exit(1)
+
 import os
 import time
 import numpy as np
-import librosa
 import argparse
 import soundfile
 
@@ -42,8 +47,8 @@ show_time()
 # run inference
 print('demixing........', end='\r')
 stime = time.perf_counter()
-source = separator.demix(mix, progress_cb=lambda p: print('demixing........ %.2f%%' % p, end='\r'))
-print('demixing........', end=' ')
+source = separator.demix(mix, progress_cb=lambda p: print('demixing........ %.2f%%' % (100.*p), end='\r'))
+print('demixing........', end='     ')
 show_time()
 
 # save output

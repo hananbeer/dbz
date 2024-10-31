@@ -1,5 +1,3 @@
-import os
-import time
 import onnx
 import torch
 import numpy as np
