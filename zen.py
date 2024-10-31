@@ -27,7 +27,7 @@ elif platform.system() == "Windows":
 def clear_gpu_cache():
     gc.collect()
     if is_macos:
-        torch.mps.empty_cache()
+        torch.backends.mps.empty_cache()
     else:
         torch.cuda.empty_cache()
 
@@ -211,9 +211,9 @@ def process_simple(input_path, output_path):
 
 
 if __name__ == "__main__":
-    # audio_file = r'./Eminem - Rap God.mp3'
+    input_path = r'./input/Eminem - Rap God.mp3'
     # input_path = r'./input/Why iii Love The Moon.mp4'
-    input_path = r'./input_buffer.wav'
+    # input_path = r'./input_buffer.wav'
     output_dir = './output'
 
     filename = os.path.basename(input_path)

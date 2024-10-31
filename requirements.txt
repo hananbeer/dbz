@@ -4,8 +4,9 @@ numpy==1.23.5
 onnx==1.16.0
 onnx2pytorch==0.5.0
 onnxruntime==1.18.0
-onnxruntime_gpu==1.16.3
-PyAudioWPatch==0.2.12.6
+onnxruntime_gpu==1.16.3; sys_platform != 'darwin'
+PyAudioWPatch==0.2.12.6; sys_platform == 'windows'
 pycaw==20240210
 PySoundFile==0.9.0.post1
-torch==2.0.1+cu118
+torch==2.0.1+cu118; sys_platform != 'darwin'
+torch==2.0.1; sys_platform == 'darwin'
