@@ -31,11 +31,30 @@ def clear_gpu_cache():
     else:
         torch.cuda.empty_cache()
 
+def stft(signal, n_fft, hop_length):
+    # Create a Hann window
+    window = np.hanning(n_fft)
+    # Calculate the number of frames
+    num_frames = 1 + (len(signal) - n_fft) // hop_length
+    # Pad the signal
+    padded_signal = np.pad(signal, (0, n_fft), mode='constant')
+    # Initialize the STFT matrix
+    stft_matrix = np.zeros((num_frames, n_fft), dtype=complex)
+
+    for i in range(num_frames):
+        start = i * hop_length
+        frame = padded_signal[start:start + n_fft] * window
+        stft_matrix[i, :] = np.fft.fft(frame)
+
+    return stft_matrix
+
 class STFT:
     def __init__(self, n_fft, hop_length, dim_f, device):
         self.n_fft = n_fft
         self.hop_length = hop_length
-        self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
+        #self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
+        # using numpy instead: (does not result in exact output, but like 0.1% difference)
+        self.window = torch.tensor(np.hanning(self.n_fft).astype(np.float32))
         self.dim_f = dim_f
         self.device = device
 
