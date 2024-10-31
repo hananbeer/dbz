@@ -95,7 +95,8 @@ class ZenDemixer:
         if adjust != 1.0:
             spec *= adjust
 
-        # spec[:, :, :3, :] *= 0
+        # TODO: seems to not be necessary?
+        spec[:, :, :3, :] *= 0
         # NOTE: onnx supports batch_size > 1, demo:
         # spec = torch.cat([spec, spec], dim=0)
         with torch.no_grad():
