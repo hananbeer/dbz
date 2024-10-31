@@ -1,46 +1,17 @@
 import onnx
 import torch
 import numpy as np
-import platform
 import warnings
 
 from onnx2pytorch import ConvertModel
 
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
-if platform.system() == "Darwin":
-    is_windows = False
-    is_macos = True
-elif platform.system() == "Linux":
-    is_windows = False
-    is_macos = False
-elif platform.system() == "Windows":
-    is_windows = True
-    is_macos = False
-
-def stft(signal, n_fft, hop_length):
-    # Create a Hann window
-    window = np.hanning(n_fft)
-    # Calculate the number of frames
-    num_frames = 1 + (len(signal) - n_fft) // hop_length
-    # Pad the signal
-    padded_signal = np.pad(signal, (0, n_fft), mode='constant')
-    # Initialize the STFT matrix
-    stft_matrix = np.zeros((num_frames, n_fft), dtype=complex)
-
-    for i in range(num_frames):
-        start = i * hop_length
-        frame = padded_signal[start:start + n_fft] * window
-        stft_matrix[i, :] = np.fft.fft(frame)
-
-    return stft_matrix
-
 class STFT:
     def __init__(self, n_fft, hop_length, dim_f, device):
         self.n_fft = n_fft
         self.hop_length = hop_length
-        # self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
-        self.window = torch.tensor(np.hanning(self.n_fft).astype(np.float32))
+        self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
         self.dim_f = dim_f
         self.device = device
 
@@ -52,9 +23,9 @@ class STFT:
         window = self.window.to(x.device)
         batch_dims = x.shape[:-2]
         c, t = x.shape[-2:]
-        x = x.reshape([-1, t]) # returns torch.Size([2, 1047552])
-        x = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, window=window, center=True, return_complex=True) # returns torch.Size([2, 3073, 1024])
-        x = torch.view_as_real(x) # returns torch.Size([2, 3073, 1024, 2])
+        x = x.reshape([-1, t])
+        x = torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, window=window, center=True, return_complex=True)
+        x = torch.view_as_real(x)
         x = x.permute([0, 3, 1, 2])
         x = x.reshape([*batch_dims, c, 2, -1, x.shape[-1]]).reshape([*batch_dims, c * 2, -1, x.shape[-1]])
 
@@ -96,22 +67,14 @@ class ZenDemixer:
     mdx_segment_size = 1024
     chunk_size = hop * (mdx_segment_size - 1)
 
-    # samplerate = 44100
-    buffer_ms = None # 1500
-
     def __init__(self, use_gpu=True):
-        if is_macos and use_gpu and torch.backends.mps.is_available():
+        if use_gpu and torch.backends.mps.is_available():
             self.device = 'mps'
         elif use_gpu and torch.cuda.is_available():
             self.device = 'cuda'
         else:
             self.device = 'cpu'
 
-        # taken from the model_data.json
-        #self.max_dim_f_set = 3072
-        #self.max_dim_t_set = 8 # 2**8
-        #self.mdx_n_fft_scale_set = 6144
-        
         self.stft = STFT(self.n_fft, self.hop, self.dim_f, self.device)
         self._load_model()
 
