@@ -13,8 +13,14 @@ The processed audio is sent to the physical output device directly.
 Note this makes it possible to change specific applications audio output in the system mixer settings - using the virtual device for AI processing or the physical device to bypass the program.
 
 ## TODO:
+
 - copy volume levels when changed
 - monitor audio devices plugged/unplugged
+- reduce build size (avoiding torch is probably the largest size reduction, but onnx could result in slower runtime)
+- add a tray icon
+- add splash
+- ui
+- keyboard shortcuts
 
 # Windows
 
@@ -77,4 +83,15 @@ osascript -e "set volume input volume 100 --100%"
 for zen_from_file.py to run in mac libsndfile needs to be installed like so:
 ```sh
 conda install -c conda-forge libsndfile
+```
+
+# Building
+
+```sh
+conda create -n py310 python=3.10.15
+conda activate py310
+pip install -r requirements.txt
+pip install pyinstaller==6.11.0
+pyinstaller process_audio.py -y
+pyinstaller process_audio.spec
 ```
