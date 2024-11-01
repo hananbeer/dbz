@@ -69,13 +69,20 @@ def zen_thread():
 
     while True:
         input_buffer = input_queue.get()
+        # avoid clicking & unnecessary processing if buffer is empty
+        if not input_buffer.any():
+            print('skipping empty buffer')
+            # TODO: check if this may help in order to keep output stream synced
+            # output_queue.put(input_buffer)
+            continue
+
         current_buffer_size = input_buffer.shape[1]
         current_buffer_offset = min(back_buffer.shape[1], demixer.chunk_size - current_buffer_size)
         back_buffer = np.concatenate((back_buffer[:, :demixer.chunk_size - current_buffer_size], input_buffer), axis=1)
 
         print('demixing...')
         stime = time.perf_counter()
-        output_buffer = demixer.demix(back_buffer)#, volume_vocals=0.3) #, buffer_size=demixer.chunk_size)
+        output_buffer = demixer.demix(back_buffer)#,volume_vocals=0.3) #, buffer_size=demixer.chunk_size)
         print_time('signal demixed:', stime)
         output_queue.put(output_buffer[:, current_buffer_offset:current_buffer_offset + current_buffer_size])
 

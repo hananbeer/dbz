@@ -66,7 +66,7 @@ class ZenDemixer:
     dim_f = 3072
     dim_t = 2 ** 8
     n_fft = 6144
-    mdx_segment_size = 256
+    mdx_segment_size = 256 # 64
     chunk_size = hop * (mdx_segment_size - 1)
 
     def __init__(self, use_gpu=True):
@@ -82,6 +82,20 @@ class ZenDemixer:
         self._load_model()
 
     def _load_model(self):
+        print('segment size:', self.mdx_segment_size)
+        
+        # apparently you can change mdx_segment_size for pytorch flow??
+        # with mdx_segment_size = 64 I'm getting 10ms processing on gpu!
+        # only 2x from onnx at 256 (I don't think can change it there)
+        # but the real diff will be for cpu folks - could be interesting to investigate
+        if self.mdx_segment_size != 256:
+            print('using pytorch model')
+            # old pytorch method is very slow to load and also while it is faster it requires larger chunks
+            # but for this use case small chunks is more beneficial
+            self.model = ConvertModel(onnx.load(self.model_path))
+            self.model.to(self.device).eval()
+            return
+
         provider = 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
         inference = onnxruntime.InferenceSession(self.model_path, providers=[provider])
 
@@ -102,11 +116,6 @@ class ZenDemixer:
 
         self.model = lambda spec: inference.run(None, {'input': spec.cpu().numpy()})[0]
 
-        # old pytorch method is very slow to load and also while it is faster it requires larger chunks
-        # but for this use case small chunks is more beneficial
-        # self.model = ConvertModel(onnx.load(self.model_path))
-        # self.model.to(self.device).eval()
-
     def run_model(self, mix, volume_instrument=1.0, volume_vocals=0.0):
         """
         expects `mix` to be a `torch.tensor` of shape (batch_size=1, channels=2, samples=self.chunk_size)
@@ -115,18 +124,21 @@ class ZenDemixer:
         spec_mix = self.stft(mix.to(self.device))
 
         # TODO: this might not be needed anymore
-        spec_mix[:, :, :3, :] *= 0 
+        # spec_mix[:, :, :3, :] *= 0
         with torch.no_grad():
-            result = self.model(spec_mix)
+            spec_instrument = self.model(spec_mix)
 
-        # if volume_instrument != 1.0:
-        #     result = spec_instrument * volume_instrument
-        # else:
-        #     result = spec_instrument
+        if volume_instrument != 1.0:
+            result = spec_instrument * volume_instrument
+        else:
+            result = spec_instrument
 
-        # if volume_vocals != 0:
-        #     spec_vocals = (spec_mix - spec_instrument) * volume_vocals
-        #     result += spec_vocals
+        if volume_vocals != 0:
+            # TODO: the simple onnx inference returns to cpu
+            # and this can perhaps be optimized in the optimized gpu-binding flow
+            # by avoiding copying to cpu like so: output = io_binding.copy_outputs_to_cpu()
+            spec_vocals = (spec_mix.to(spec_instrument.device) - spec_instrument) * volume_vocals
+            result += spec_vocals
 
         tensor = torch.tensor(result).to(self.device)
         return self.stft.inverse(tensor).cpu().detach().numpy()
