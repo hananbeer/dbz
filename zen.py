@@ -1,19 +1,122 @@
-import onnx
 import torch
 import numpy as np
 import warnings
 import onnxruntime
 
-from onnx2pytorch import ConvertModel
-
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
-class STFT:
-    def __init__(self, n_fft, hop_length, dim_f, device):
+# python zen_from_file.py "input\Eminem - Rap God.mp3" --nogpu
+
+class STFT_np:
+    def __init__(self, n_fft, hop_length, dim_f):
         self.n_fft = n_fft
         self.hop_length = hop_length
-        # self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
-        self.window = torch.tensor(np.hanning(self.n_fft).astype(np.float32)).to(device)
+        self.window = np.hanning(self.n_fft).astype(np.float32)
+        self.dim_f = dim_f
+
+    def __call__(self, x):
+        # Assuming x is a numpy array
+        batch_dims = x.shape[:-2]
+        c, t = x.shape[-2:]
+        x = x.reshape([-1, t])
+        # Simulate STFT using numpy (this is a placeholder for actual STFT implementation)
+        # This is a simplified example and does not perform actual STFT
+        x_stft = np.fft.rfft(x, n=self.n_fft)[..., :self.dim_f]
+        x_stft = np.abs(x_stft)
+        x_stft = x_stft.reshape([*batch_dims, c, -1, self.dim_f])
+        return x_stft.astype(np.float32)
+
+    def inverse(self, x):
+        # Assuming x is a numpy array
+        batch_dims = x.shape[:-3]
+        c, f, t = x.shape[-3:]
+        n = self.n_fft // 2 + 1
+        f_pad = np.zeros([*batch_dims, c, n - f, t])
+        x = np.pad(x, ((0, 0), (0, 0), (0, n - f), (0, 0)), 'constant')
+        # Simulate ISTFT using numpy (this is a placeholder for actual ISTFT implementation)
+        # This is a simplified example and does not perform actual ISTFT
+        x_istft = np.fft.irfft(x, n=self.n_fft)
+        x_istft = x_istft.reshape([*batch_dims, 2, -1])
+        return x_istft.astype(np.float32)
+
+
+def stft(x, n_frame, n_hop, window='hann'):
+    """
+    Compute the Short-Time Fourier Transform (STFT) of a signal.
+    
+    Parameters:
+    x (array): Input signal
+    n_frame (int): Frame length
+    n_hop (int): Hop length between frames
+    window (str): Window function (default: 'hann')
+    
+    Returns:
+    stft (2D array): Complex STFT matrix
+    """
+    # Compute the number of frames
+    frame_count = 1 + (len(x) - n_frame) // n_hop
+    
+    # Create the window function
+    if window == 'hann':
+        win = np.hanning(n_frame)
+    elif window == 'hamming':
+        win = np.hamming(n_frame)
+    else:
+        win = np.ones(n_frame)  # Rectangular window
+    
+    # Initialize the STFT matrix
+    stft = np.zeros((frame_count, n_frame // 2 + 1), dtype=np.complex64)
+    
+    # Compute STFT
+    for i in range(frame_count):
+        # Extract frame
+        frame = x[i * n_hop : i * n_hop + n_frame]
+        
+        # Apply window function
+        windowed_frame = frame * win
+        
+        # Compute FFT
+        stft[i, :] = np.fft.rfft(windowed_frame)
+    
+    return stft
+
+def istft(stft_matrix, n_frame, n_hop, window='hann'):
+    frame_count, freq_bins = stft_matrix.shape
+    
+    # Create the window function
+    if window == 'hann':
+        win = np.hanning(n_frame)
+    elif window == 'hamming':
+        win = np.hamming(n_frame)
+    else:
+        win = np.ones(n_frame)
+    
+    # Calculate the length of the output signal
+    output_length = n_hop * (frame_count - 1) + n_frame
+    
+    # Initialize the output array
+    output = np.zeros(output_length)
+    
+    # Initialize normalization array
+    norm = np.zeros(output_length)
+    
+    # Reconstruct the signal
+    for i in range(frame_count):
+        frame = np.fft.irfft(stft_matrix[i, :])
+        windowed_frame = frame * win
+        output[i * n_hop : i * n_hop + n_frame] += windowed_frame
+        norm[i * n_hop : i * n_hop + n_frame] += win ** 2
+    
+    # Normalize the output
+    output /= np.where(norm > 1e-10, norm, 1)
+    
+    return output
+
+class STFT:
+    def __init__(self, n_fft, hop_length, dim_f, device='cpu'):
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.window = torch.hann_window(window_length=self.n_fft, periodic=True)
         self.dim_f = dim_f
         self.device = device
 
@@ -58,7 +161,11 @@ class STFT:
 
         return x
 
+
 class ZenDemixer:
+    # NOTE: quantization did not help much
+    # this worked better than the convert.py script: (still not as good as the original onnx model)
+    # python -m onnxruntime.quantization.preprocess --input=./models\UVR-MDX-NET-Inst_HQ_3.onnx --output=./models/demixer_m.onnx
     model_path = './models/UVR-MDX-NET-Inst_HQ_3.onnx'
 
     adjust = 1
@@ -78,20 +185,25 @@ class ZenDemixer:
             self.device = 'cpu'
 
         # TODO: should keep stft in cpu? seems just as fast or faster
-        self.stft = STFT(self.n_fft, self.hop, self.dim_f, 'cpu') # self.device)
+        self.stft = STFT(self.n_fft, self.hop, self.dim_f) # self.device)
         self._load_model()
 
     def _load_model(self):
+        # onnxruntime.set_default_logger_severity(0)  # Verbose logging
+
         provider = 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
         inference = onnxruntime.InferenceSession(self.model_path, providers=[provider])
         self.model = lambda spec: inference.run(None, {'input': spec.cpu().numpy()})[0]
+        # exit(0)
 
     def run_model(self, mix, adjust=1.0, inverse=False):
         """
         expects `mix` to be a `torch.tensor` of shape (batch_size=1, channels=2, samples=self.chunk_size)
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
+        # print('0', mix.shape)
         spec = self.stft(mix.to(self.device))
+        # print('1', spec.shape)
         if adjust != 1.0:
             spec *= adjust
 
@@ -101,8 +213,9 @@ class ZenDemixer:
         # spec = torch.cat([spec, spec], dim=0)
         with torch.no_grad():
             spec_pred = self.model(spec)#[:1, ...]
-
+        # print('2', spec_pred.shape)
         tensor = torch.tensor(spec_pred).to(self.device)
+        # print('3', tensor.shape)
         if inverse:
             tensor = spec - tensor
         return self.stft.inverse(tensor).cpu().detach().numpy()

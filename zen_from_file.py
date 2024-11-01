@@ -13,7 +13,7 @@ import soundfile
 ap = argparse.ArgumentParser()
 ap.add_argument('input', type=str)
 ap.add_argument('output', type=str, nargs='?', default='output.wav')
-ap.add_argument('--gpu', type=bool, default=True)
+ap.add_argument('--nogpu', action='store_true', default=False)
 ap.add_argument('--inverse', action='store_true', default=False)
 
 args = ap.parse_args()
@@ -32,7 +32,7 @@ stime = time.perf_counter()
 show_time = lambda: print('%.2fs' % (time.perf_counter() - stime))
 
 import zen
-separator = zen.ZenDemixer(use_gpu=args.gpu)
+separator = zen.ZenDemixer(use_gpu=not args.nogpu)
 show_time()
 
 # load audio
