@@ -66,7 +66,7 @@ class ZenDemixer:
     dim_f = 3072
     dim_t = 2 ** 8
     n_fft = 6144
-    mdx_segment_size = 256 # 64
+    mdx_segment_size = 64
     chunk_size = hop * (mdx_segment_size - 1)
 
     def __init__(self, use_gpu=True):

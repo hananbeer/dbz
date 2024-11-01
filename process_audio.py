@@ -14,6 +14,8 @@ else:
 
 use_gpu = True
 
+# TODO: handle single-channel & take samplerate from device
+# and perhaps convert rate if samplerates differs between input & output devices
 channels = 2
 samplerate = 48000
 # this still works as low as 1024 * 50 but the delay is only marginally lower
@@ -23,11 +25,8 @@ samplerate = 48000
 # best results on my gpu takes ~200ms to demix
 # so 500ms could be reasonable
 buffer_ms = 500
-buffer_size = samplerate * buffer_ms // 1000
-frames_per_buffer = 1024 * 16 # buffer_size // 4 # divide by sizeof(float32)
-
-# volume between 0..1
-#volume = 0.5
+buffer_size = 1024 * 16 #samplerate * buffer_ms // 1000
+frames_per_buffer = 1024 * 4 # buffer_size // 4 # divide by sizeof(float32)
 
 input_queue = queue.Queue()
 output_queue = queue.Queue()
@@ -56,13 +55,9 @@ if not dev_in or not dev_out:
     print('CABLE Input or Speakers device not found')
     exit(1)
 
-
-def zen_thread():
-    print('loading model...')
-    stime = time.perf_counter()
-    demixer = zen.ZenDemixer(use_gpu=use_gpu)
-    print_time('model loaded:', stime)
-
+debug_use_back_buffer = True
+volume_vocals = 0.3 # 0.0
+def zen_thread(demixer):
     back_buffer = np.zeros((channels, 0), dtype=np.float32)
 
     assert buffer_size <= demixer.chunk_size, 'buffer_size must be less than or equal to demixer.chunk_size'
@@ -82,9 +77,15 @@ def zen_thread():
 
         print('demixing...')
         stime = time.perf_counter()
-        output_buffer = demixer.demix(back_buffer)#,volume_vocals=0.3) #, buffer_size=demixer.chunk_size)
+
+        if debug_use_back_buffer:
+            output_buffer = demixer.demix(back_buffer, volume_vocals=volume_vocals) #, buffer_size=demixer.chunk_size)
+            output_queue.put(output_buffer[:, current_buffer_offset:current_buffer_offset + current_buffer_size])
+        else:
+            output_buffer = demixer.demix(input_buffer, volume_vocals=volume_vocals)
+            output_queue.put(output_buffer)
+
         print_time('signal demixed:', stime)
-        output_queue.put(output_buffer[:, current_buffer_offset:current_buffer_offset + current_buffer_size])
 
         print('back buffer size:', back_buffer.shape[1])
 
@@ -139,7 +140,13 @@ def process_forever(input_stream, output_stream):
 
 
 def main():
-    thread = threading.Thread(target=zen_thread)
+    # NOTE: it may be better loading model before recording starts
+    print('loading model...')
+    stime = time.perf_counter()
+    demixer = zen.ZenDemixer(use_gpu=use_gpu)
+    print_time('model loaded:', stime)
+
+    thread = threading.Thread(target=zen_thread, args=(demixer,))
     thread.start()
 
     try:
