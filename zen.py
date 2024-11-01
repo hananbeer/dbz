@@ -78,28 +78,32 @@ class ZenDemixer:
             self.device = 'cpu'
 
         # TODO: this may be faster on CPU in any case, but need to test further
-        self.stft = STFT(self.n_fft, self.hop, self.dim_f, 'cpu')
+        self.stft = STFT(self.n_fft, self.hop, self.dim_f, self.device)
         self._load_model()
 
     def _load_model(self):
         provider = 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
         inference = onnxruntime.InferenceSession(self.model_path, providers=[provider])
 
-        io_binding = inference.io_binding()
-        input_name = inference.get_inputs()[0].name
+        # io_binding = inference.io_binding()
+        # input_name = inference.get_inputs()[0].name
 
-        def _m(spec):
-            input_tensor = spec.contiguous()
-            io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32, shape=input_tensor.shape, buffer_ptr=input_tensor.data_ptr())
-            output_name = inference.get_outputs()[0].name
-            io_binding.bind_output(output_name, 'cuda')
-            inference.run_with_iobinding(io_binding)
-            output = io_binding.copy_outputs_to_cpu()
-            return output[0]
-    
+        # def _m(spec):
+        #     # binding spec from gpu directly isn't such an improvement because onnx has smaller chunk size too
+        #     # need to test on other devices
+        #     input_tensor = spec.contiguous()
+        #     io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32, shape=input_tensor.shape, buffer_ptr=input_tensor.data_ptr())
+        #     output_name = inference.get_outputs()[0].name
+        #     io_binding.bind_output(output_name, 'cuda')
+        #     inference.run_with_iobinding(io_binding)
+        #     output = io_binding.copy_outputs_to_cpu()
+        #     return output[0]
+        # self.model = _m
 
-        self.model = _m
+        self.model = lambda spec: inference.run(None, {'input': spec.cpu().numpy()})[0]
 
+        # old pytorch method is very slow to load and also while it is faster it requires larger chunks
+        # but for this use case small chunks is more beneficial
         # self.model = ConvertModel(onnx.load(self.model_path))
         # self.model.to(self.device).eval()
 
