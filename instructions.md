@@ -21,14 +21,15 @@ Note this makes it possible to change specific applications audio output in the 
 - add splash
 - ui
 - keyboard shortcuts
+- individual volume for instrumental/vocals
 
 # Windows
 
 `SoundVolumeView.exe` (by same developer as `NirCmd.exe`, unfortunately neither open source but incredibly useful)
 
 ```bat
-rem get list of devices
-SoundVolumeView.exe /scomma list.csv /Columns "Name,Command-Line Friendly ID"
+rem get list of devices (use Item ID as it is unique)
+.\bin\SoundVolumeView.exe /scomma dev_list.csv /Columns "Type,Name,Item ID,Device State"
 rem set default output device
 SoundVolumeView.exe /SetDefault "VB-Cable Input" all
 SoundVolumeView.exe /SetDefault Speakers all
@@ -94,4 +95,22 @@ pip install -r requirements.txt
 pip install pyinstaller==6.11.0
 pyinstaller process_audio.py -y
 pyinstaller process_audio.spec
+```
+
+There's a bug in `pyinstaller`, at least on Windows.
+
+Locate the `dis.py` file in your Python installation directory. It should be at:
+
+`.../miniconda3/envs/py310/lib/dis.py`
+
+Open the file and find the `_get_const_info` function.
+Modify the function to include a try-except block:
+
+```python
+def _get_const_info(const_index, const_list):
+    try:
+        argval = const_list[const_index]
+    except IndexError:
+        return None, f'<constant index out of range: {const_index}>'
+    return argval, repr(argval)
 ```

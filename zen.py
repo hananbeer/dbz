@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import warnings
 
+import onnxruntime
+
 from onnx2pytorch import ConvertModel
 
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
@@ -64,7 +66,7 @@ class ZenDemixer:
     dim_f = 3072
     dim_t = 2 ** 8
     n_fft = 6144
-    mdx_segment_size = 1024
+    mdx_segment_size = 256
     chunk_size = hop * (mdx_segment_size - 1)
 
     def __init__(self, use_gpu=True):
@@ -75,30 +77,57 @@ class ZenDemixer:
         else:
             self.device = 'cpu'
 
-        self.stft = STFT(self.n_fft, self.hop, self.dim_f, self.device)
+        # TODO: this may be faster on CPU in any case, but need to test further
+        self.stft = STFT(self.n_fft, self.hop, self.dim_f, 'cpu')
         self._load_model()
 
     def _load_model(self):
-        self.model = ConvertModel(onnx.load(self.model_path))
-        self.model.to(self.device).eval()
+        provider = 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
+        inference = onnxruntime.InferenceSession(self.model_path, providers=[provider])
 
-    def run_model(self, mix, adjust=1.0):
+        io_binding = inference.io_binding()
+        input_name = inference.get_inputs()[0].name
+
+        def _m(spec):
+            input_tensor = spec.contiguous()
+            io_binding.bind_input(name=input_name, device_type='cuda', device_id=0, element_type=np.float32, shape=input_tensor.shape, buffer_ptr=input_tensor.data_ptr())
+            output_name = inference.get_outputs()[0].name
+            io_binding.bind_output(output_name, 'cuda')
+            inference.run_with_iobinding(io_binding)
+            output = io_binding.copy_outputs_to_cpu()
+            return output[0]
+    
+
+        self.model = _m
+
+        # self.model = ConvertModel(onnx.load(self.model_path))
+        # self.model.to(self.device).eval()
+
+    def run_model(self, mix, volume_instrument=1.0, volume_vocals=0.0):
         """
         expects `mix` to be a `torch.tensor` of shape (batch_size=1, channels=2, samples=self.chunk_size)
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
-        spec = self.stft(mix.to(self.device))
-        if adjust != 1.0:
-            spec *= adjust
+        spec_mix = self.stft(mix.to(self.device))
 
-        spec[:, :, :3, :] *= 0 
+        # TODO: this might not be needed anymore
+        spec_mix[:, :, :3, :] *= 0 
         with torch.no_grad():
-            spec_pred = self.model(spec)
+            result = self.model(spec_mix)
 
-        tensor = torch.tensor(spec_pred).to(self.device)
+        # if volume_instrument != 1.0:
+        #     result = spec_instrument * volume_instrument
+        # else:
+        #     result = spec_instrument
+
+        # if volume_vocals != 0:
+        #     spec_vocals = (spec_mix - spec_instrument) * volume_vocals
+        #     result += spec_vocals
+
+        tensor = torch.tensor(result).to(self.device)
         return self.stft.inverse(tensor).cpu().detach().numpy()
 
-    def demix(self, mix, buffer_size=None, progress_cb=None):
+    def demix(self, mix, buffer_size=None, progress_cb=None, volume_instrument=1.0, volume_vocals=0.0):
         """
         the model always processes chunks of self.chunk_size samples
 
@@ -136,7 +165,7 @@ class ZenDemixer:
                 chunk = np.concatenate((chunk, padding), axis=-1)
 
             chunk_tensor = torch.tensor(np.array([chunk]), dtype=torch.float32).to(self.device)
-            spec_pred = self.run_model(chunk_tensor, adjust=self.adjust)
+            spec_pred = self.run_model(chunk_tensor, volume_instrument, volume_vocals)
             result[:, start:end] = spec_pred[..., :buffer_size]
 
             if progress_cb:

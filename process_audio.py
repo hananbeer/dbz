@@ -3,32 +3,65 @@ import time
 import queue
 import threading
 import numpy as np
-import pyaudiowpatch as pyaudio
+
+import platform
+if platform.system() == 'Windows':
+    import pyaudiowpatch as pyaudio
+else:
+    import pyaudio
 
 # from scipy.signal import resample
 
 use_gpu = True
 
-frames_per_buffer = 4096
 channels = 2
 samplerate = 48000
 # this still works as low as 1024 * 50 but the delay is only marginally lower
 # at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
 # at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
-buffer_size = 1024 * 1023
+
+# best results on my gpu takes ~200ms to demix
+# so 500ms could be reasonable
+buffer_ms = 500
+buffer_size = samplerate * buffer_ms // 1000
+frames_per_buffer = 1024 * 16 # buffer_size // 4 # divide by sizeof(float32)
 
 # volume between 0..1
 #volume = 0.5
 
-input_device_index = 21
-output_device_index = 5
-
 input_queue = queue.Queue()
 output_queue = queue.Queue()
 
+p = pyaudio.PyAudio()
+
+# dev_in should be CABLE Input
+dev_in = None
+
+# dev_out should be Headphones / Speakers
+dev_out = None
+
+def print_time(msg, start_time):
+    print(msg, '%.2f' % (time.perf_counter() - start_time))
+
+for i in range(p.get_device_count()):
+    dev = p.get_device_info_by_index(i)
+    # print(dev)
+    if dev['isLoopbackDevice'] and "CABLE Input" in dev['name']:
+        dev_in = dev
+
+    if not dev_out and not dev['isLoopbackDevice'] and "Speakers" in dev['name']:
+        dev_out = dev
+
+if not dev_in or not dev_out:
+    print('CABLE Input or Speakers device not found')
+    exit(1)
+
+
 def zen_thread():
-    print('initializing')
+    print('loading model...')
+    stime = time.perf_counter()
     demixer = zen.ZenDemixer(use_gpu=use_gpu)
+    print_time('model loaded:', stime)
 
     back_buffer = np.zeros((channels, 0), dtype=np.float32)
 
@@ -36,17 +69,17 @@ def zen_thread():
 
     while True:
         input_buffer = input_queue.get()
-        # take the last chunk_size samples
-        if len(input_buffer) < demixer.chunk_size:
-            remainder = demixer.chunk_size - len(input_buffer)
-            input_buffer = np.concatenate((back_buffer[:, -remainder:], input_buffer), axis=1)
+        current_buffer_size = input_buffer.shape[1]
+        current_buffer_offset = min(back_buffer.shape[1], demixer.chunk_size - current_buffer_size)
+        back_buffer = np.concatenate((back_buffer[:, :demixer.chunk_size - current_buffer_size], input_buffer), axis=1)
 
-        print('demixing')
-        output_buffer = demixer.demix(input_buffer) #, buffer_size=demixer.chunk_size)
-        print('writing output')
-        output_queue.put(output_buffer[:, -buffer_size:])
+        print('demixing...')
+        stime = time.perf_counter()
+        output_buffer = demixer.demix(back_buffer)#, volume_vocals=0.3) #, buffer_size=demixer.chunk_size)
+        print_time('signal demixed:', stime)
+        output_queue.put(output_buffer[:, current_buffer_offset:current_buffer_offset + current_buffer_size])
 
-        back_buffer = back_buffer[:, -demixer.chunk_size:]
+        print('back buffer size:', back_buffer.shape[1])
 
 def audio_output_thread(output_stream):
     while True:
@@ -55,12 +88,12 @@ def audio_output_thread(output_stream):
             # TODO: output some default soundwave
             continue
 
-        print('got demixed output chunk')
         output_data = output_queue.get()
         output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
-        print('writing output')
+        print('writing output...')
+        stime = time.perf_counter()
         output_stream.write(output_data_compact.tobytes())
-        print('output written')
+        print_time('output written:', stime)
 
 
 def process_forever(input_stream, output_stream):
@@ -85,12 +118,14 @@ def process_forever(input_stream, output_stream):
 
         if not audio_data.any():
             print('empty buffer')
+            # TODO: raise flag to stop audio processing instantly
+            # TODO: try detecting volume from input_data?
             #continue
 
         input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
 
         if input_buffer.shape[1] >= buffer_size:
-            print('input buffer filled, processing')
+            # print('input buffer filled, processing')
             input_queue.put(input_buffer[:, :buffer_size])
             input_buffer = input_buffer[:, buffer_size:]
 
@@ -100,20 +135,14 @@ def main():
     thread = threading.Thread(target=zen_thread)
     thread.start()
 
-    # Initialize PyAudio
-    p = pyaudio.PyAudio()
-
     try:
-        # Get the default WASAPI loopback device
-        # loopback_device = p.get_default_wasapi_loopback()
-
         # Open an input stream to capture audio from the loopback device
         # NOTE: the device must not be muted or have volume 0 in the operating system settings
         input_stream = p.open(format=pyaudio.paFloat32,
                               channels=channels,
                               rate=samplerate,
                               input=True,
-                              input_device_index=input_device_index,#loopback_device['index'],
+                              input_device_index=dev_in['index'],
                               frames_per_buffer=frames_per_buffer)
 
         # Open an output stream to play the processed audio
@@ -122,12 +151,9 @@ def main():
                                rate=samplerate,
                                output=True,
                                frames_per_buffer=frames_per_buffer,
-                               output_device_index=output_device_index)
-
-        print("Starting audio processing. Press Ctrl+C to stop.")
+                               output_device_index=dev_out['index'])
 
         process_forever(input_stream, output_stream)
-
     except KeyboardInterrupt:
         print("\nStopping audio processing.")
     except Exception as e:
