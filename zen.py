@@ -21,7 +21,7 @@ class STFT_np:
         x = x.reshape([-1, t])
         # Simulate STFT using numpy (this is a placeholder for actual STFT implementation)
         # This is a simplified example and does not perform actual STFT
-        x_stft = np.fft.rfft(x, n=self.n_fft)[..., :self.dim_f]
+        x_stft = np.fft.fft(x, n=self.n_fft)[..., :self.dim_f]
         x_stft = np.abs(x_stft)
         x_stft = x_stft.reshape([*batch_dims, c, -1, self.dim_f])
         return x_stft.astype(np.float32)
@@ -35,7 +35,7 @@ class STFT_np:
         x = np.pad(x, ((0, 0), (0, 0), (0, n - f), (0, 0)), 'constant')
         # Simulate ISTFT using numpy (this is a placeholder for actual ISTFT implementation)
         # This is a simplified example and does not perform actual ISTFT
-        x_istft = np.fft.irfft(x, n=self.n_fft)
+        x_istft = np.fft.ifft(x, n=self.n_fft)
         x_istft = x_istft.reshape([*batch_dims, 2, -1])
         return x_istft.astype(np.float32)
 
@@ -53,8 +53,10 @@ def stft(x, n_frame, n_hop, window='hann'):
     Returns:
     stft (2D array): Complex STFT matrix
     """
+    x = x.cpu().numpy()
+
     # Compute the number of frames
-    frame_count = 1 + (len(x) - n_frame) // n_hop
+    frame_count = 7 + (x.shape[1] - n_frame) // n_hop
     
     # Create the window function
     if window == 'hann':
@@ -65,20 +67,25 @@ def stft(x, n_frame, n_hop, window='hann'):
         win = np.ones(n_frame)  # Rectangular window
     
     # Initialize the STFT matrix
-    stft = np.zeros((frame_count, n_frame // 2 + 1), dtype=np.complex64)
+    result = np.zeros((2, 2, n_frame // 2 + 1, frame_count), dtype=np.float32)
     
-    # Compute STFT
-    for i in range(frame_count):
-        # Extract frame
-        frame = x[i * n_hop : i * n_hop + n_frame]
-        
-        # Apply window function
-        windowed_frame = frame * win
-        
-        # Compute FFT
-        stft[i, :] = np.fft.rfft(windowed_frame)
-    
-    return stft
+    try:
+        # Compute STFT
+        for i in range(frame_count):
+            # Extract frame
+            frame = x[:, i * n_hop : i * n_hop + n_frame]
+            
+            # Apply window function
+            windowed_frame = frame * win
+            
+            # Compute FFT
+            res = np.fft.fft(windowed_frame)
+            res2 = np.array([[res[0].real, res[0].imag], [res[1].real, res[1].imag]])
+            result[..., i] = res2[..., :n_frame // 2 + 1]
+    except:
+        print('stft')
+
+    return result.reshape((1, 4, result.shape[2], result.shape[3]))[:, :, :n_frame // 2, :]
 
 def istft(stft_matrix, n_frame, n_hop, window='hann'):
     frame_count, freq_bins = stft_matrix.shape
@@ -102,7 +109,7 @@ def istft(stft_matrix, n_frame, n_hop, window='hann'):
     
     # Reconstruct the signal
     for i in range(frame_count):
-        frame = np.fft.irfft(stft_matrix[i, :])
+        frame = np.fft.ifft(stft_matrix[i, :])
         windowed_frame = frame * win
         output[i * n_hop : i * n_hop + n_frame] += windowed_frame
         norm[i * n_hop : i * n_hop + n_frame] += win ** 2
@@ -193,7 +200,7 @@ class ZenDemixer:
 
         provider = 'CUDAExecutionProvider' if self.device == 'cuda' else 'CPUExecutionProvider'
         inference = onnxruntime.InferenceSession(self.model_path, providers=[provider])
-        self.model = lambda spec: inference.run(None, {'input': spec.cpu().numpy()})[0]
+        self.model = lambda spec: inference.run(None, {'input': spec})[0]
         # exit(0)
 
     def run_model(self, mix, adjust=1.0, inverse=False):
@@ -202,7 +209,8 @@ class ZenDemixer:
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         # print('0', mix.shape)
-        spec = self.stft(mix.to(self.device))
+        spec = stft(mix.to(self.device)[0], self.n_fft, self.hop)
+        # spec = self.stft(mix.to(self.device))
         # print('1', spec.shape)
         if adjust != 1.0:
             spec *= adjust
@@ -218,6 +226,7 @@ class ZenDemixer:
         # print('3', tensor.shape)
         if inverse:
             tensor = spec - tensor
+        # return istft(tensor, self.n_fft, self.hop).cpu().detach().numpy()
         return self.stft.inverse(tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, inverse=False):
