@@ -166,8 +166,8 @@ def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
 x_og = stft_og(input_buffer, n_fft, hop, dim_f)
 print('x_og.shape', x_og.shape)
 
-# x_np = stft_np(input_buffer, n_fft, hop, dim_f)
-# print('x_np.shape', x_np.shape)
+x_np = stft_np(input_buffer, n_fft, hop, dim_f)
+print('x_np.shape', x_np.shape)
 # # print(np.abs(x_og - x_np).max())
 
 x_sc = stft_sc(input_buffer, n_fft, hop, dim_f)
@@ -179,6 +179,7 @@ print('x_sc.shape', x_sc.shape)
 # torch.view_as_real(x_sc)
 
 
+### PLOTTING ###
 
 # x_og2 = x_og.reshape(2, 2, x_og.shape[1], x_og.shape[2])
 # x_np2 = x_np.reshape(2, 2, x_np.shape[1], x_np.shape[2])
@@ -203,9 +204,14 @@ print('x_sc.shape', x_sc.shape)
 # plt.ylabel('Frequency')
 # plt.show()
 
-
+# original for testing
 # wave_og = istft_og(x_og, n_fft, hop, dim_f)
+
+# np -> np similarly to og -> np has pitch and volume changes
+# probably due to broken normalization, could be broken padding?
 # wave_np = istft_np(x_og, n_fft, hop, dim_f)
+
+# sc -> sc works, but og -> sc doesn't
 wave_sc = istft_sc(x_sc, n_fft, hop, dim_f)
 
 import soundfile
