@@ -34,7 +34,7 @@ def get_audio_devices():
 
     return devices
 
-def init_windows(try_install=True):
+def startup(try_install=True):
     all_devices = get_audio_devices()
 
     # filter out Application-specific devices and only get Render devices
@@ -61,7 +61,7 @@ def init_windows(try_install=True):
         if default_devices:
             svv_set_audio_device_default(default_devices[0]['id'])
 
-        return init_windows(False)
+        return startup(False)
 
     # TODO: what to do if there are multuple devices of this name?
     vb_cable_device = vb_cable_devices[0]

@@ -1,25 +1,10 @@
 print('starting...')
 
-import device_manager_windows
+###
+### parse args
+###
 
-assert device_manager_windows.init_windows(), 'startup failed, ensure virtual devices are installed properly'
-
-import re
-import time
-import queue
 import argparse
-import platform
-import threading
-import numpy as np
-
-if platform.system() == 'Windows':
-    import pyaudiowpatch as pyaudio
-else:
-    import pyaudio
-
-# from scipy.signal import resample
-
-import zen
 
 parser = argparse.ArgumentParser()
 # TODO: instead of cpu, pass device name (cpu, cuda:0, cuda:1, mps, etc.)
@@ -29,6 +14,33 @@ parser.add_argument('--output')
 parser.add_argument('--buffer-size', type=int, default=127)
 parser.add_argument('--samples-per-io', type=int, default=4096)
 args = parser.parse_args()
+
+###
+### initiate startup, install virtual devices if necessary
+###
+
+import platform
+
+if platform.system() == 'Windows':
+    import pyaudiowpatch as pyaudio
+    import device_manager_windows as devman
+else:
+    import pyaudio
+    import device_manager_mac as devman
+
+assert devman.startup(), 'startup failed, ensure virtual devices are installed properly'
+
+###
+### start app
+###
+
+import re
+import time
+import queue
+import threading
+import numpy as np
+
+import zen
 
 assert 0 < args.buffer_size < 128, 'buffer_size must be greater than 0 and less than 128'
 assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
