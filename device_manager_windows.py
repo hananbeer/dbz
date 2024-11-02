@@ -1,5 +1,7 @@
 import subprocess
 
+default_audio_devices = []
+
 def install_vb_cable():
     # as shell so it will request elevated permissions if needed
     return subprocess.run(r'.\bin\VBCABLE_Setup_x64.exe -i -h', shell=True)
@@ -33,6 +35,12 @@ def get_audio_devices():
         devices.append({ 'id': item_id, 'name': name, 'direction': direction, 'state': state, 'type': dev_type, 'default': default, 'is_muted': muted == 'True' })
 
     return devices
+
+def restore_default_audio_device():
+    print('restore called')
+    if default_audio_devices:
+        print('restoring default audio device', default_audio_devices)
+        svv_set_audio_device_default(default_audio_devices[0]['id'])
 
 def startup(try_install=True):
     all_devices = get_audio_devices()
@@ -75,10 +83,12 @@ def startup(try_install=True):
     # no need to check volume, just always add 100 to it
     svv_audio_device_change_volume(vb_cable_device['id'], 100)
 
-    # if vb_cable_device['default'] != 'Render':
-    #     # TODO: set default to render
-    #     print('VB-Cable device is not default output, setting to default...')
-    #     svv_set_audio_device_default(vb_cable_device['id'])
-    #     return False
+    if vb_cable_device['default'] != 'Render':
+        global default_audio_devices
+        default_audio_devices = [dev for dev in devices if dev['default'] == 'Render']
+
+        # TODO: set default to render
+        print('VB-Cable device is not default output, setting to default...')
+        svv_set_audio_device_default(vb_cable_device['id'])
 
     return True

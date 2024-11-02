@@ -12,7 +12,9 @@ parser.add_argument('--cpu', action='store_true')
 parser.add_argument('--input')
 parser.add_argument('--output')
 parser.add_argument('--buffer-size', type=int, default=127)
-parser.add_argument('--samples-per-io', type=int, default=4096)
+parser.add_argument('--samples-per-io', type=int, default=1024)
+# parser.add_argument('--volume', type=int, default=100)
+# parser.add_argument('--volume-vocals', type=int, default=0)
 args = parser.parse_args()
 
 ###
@@ -40,7 +42,7 @@ import queue
 import threading
 import numpy as np
 
-import zen
+import zen_demixer
 
 assert 0 < args.buffer_size < 128, 'buffer_size must be greater than 0 and less than 128'
 assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
@@ -63,23 +65,14 @@ dev_out_pattern = args.output
 if not dev_out_pattern:
     dev_out_pattern = 'Speakers|Headphones'
 
-# volume between 0..1
-#volume = 0.5
-
 # Initialize PyAudio
 pa = pyaudio.PyAudio()
 
 # Find the index of the VB Cable / Blackhole device
 dev_in = None
 dev_out = None
-devices_by_name = {}
-devices_by_index = {}
-for i in range(pa.get_device_count()):
-    dev = pa.get_device_info_by_index(i)
-    devices_by_index[dev['index']] = dev
-    devices_by_name[dev['name']] = dev
-
-for idx, dev in devices_by_index.items():
+for idx in range(pa.get_device_count()):
+    dev = pa.get_device_info_by_index(idx)
     if dev['maxInputChannels'] > 0 and (str(idx) == dev_in_pattern or re.search(dev_in_pattern, dev['name'], re.IGNORECASE)):
         if dev_in:
             print(f'skipping additional matching input device: {dev["index"]}, {dev["name"]}')
@@ -101,14 +94,15 @@ print(f'output device: {dev_out["index"]} {dev_out["name"]} ({dev_out["maxOutput
 print(f'preferred processor: {"cpu" if args.cpu else "gpu"}')
 print(f'buffer size: {buffer_size}')
 print(f'samples per io: {frames_per_buffer}')
+print('=' * 80)
 
 input_queue = queue.Queue()
 output_queue = queue.Queue()
 
-def zen_thread():
-    print('initializing')
-    demixer = zen.ZenDemixer(use_gpu=use_gpu)
+def print_time(stime, msg):
+    print(f'\r{msg}: %.2fs' % (time.perf_counter() - stime))
 
+def zen_thread(demixer):
     back_buffer = np.zeros((channels, 0), dtype=np.float32)
 
     assert buffer_size <= demixer.chunk_size, 'buffer_size must be less than or equal to demixer.chunk_size'
@@ -120,34 +114,43 @@ def zen_thread():
             remainder = demixer.chunk_size - len(input_buffer)
             input_buffer = np.concatenate((back_buffer[:, -remainder:], input_buffer), axis=1)
 
-        print('demixing')
+        stime = time.perf_counter()
         output_buffer = demixer.demix(input_buffer) #, buffer_size=demixer.chunk_size)
-        print('writing output')
-        output_queue.put(output_buffer[:, -buffer_size:])
+        print_time(stime, 'demixed audio')
 
+        output_queue.put(output_buffer[:, -buffer_size:])
         back_buffer = back_buffer[:, -demixer.chunk_size:]
 
 def audio_output_thread(output_stream):
     while True:
-        
-        if output_queue.empty():
-            # TODO: output some default soundwave
-            continue
+        # if output_queue.empty():
+        #     # TODO: output some default soundwave
+        #     continue
 
-        print('got demixed output chunk')
         output_data = output_queue.get()
         output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
-        print('writing output')
+        
+        # writing to output_stream is blocking, so it takes len(output_data_compact) / samplerate seconds to play
+        # stime = time.perf_counter()
         output_stream.write(output_data_compact.tobytes())
-        print('output written')
+        # print_time(stime, 'played processed audio')
 
 
 def process_forever(input_stream, output_stream):
+    print('loading model...', end='\r')
+    stime = time.perf_counter()
+    demixer = zen_demixer.ZenDemixer(use_gpu=use_gpu)
+    print_time(stime, 'model loaded')
+
+    thread = threading.Thread(target=zen_thread, args=(demixer,))
+    thread.start()
+
     thread = threading.Thread(target=audio_output_thread, args=(output_stream,))
     thread.start()
 
     input_buffer = np.zeros((channels, 0), dtype=np.float32)
 
+    prev_empty = None
     while True:
         # len(input_data) == (frames_per_buffer * channels * sizeof(float))
         input_data = input_stream.read(frames_per_buffer)
@@ -163,26 +166,25 @@ def process_forever(input_stream, output_stream):
         # audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
 
         if not audio_data.any():
-            print('empty buffer')
+            if not prev_empty:
+                print('empty buffer')
+                prev_empty = True
             #continue
+        else:
+            if prev_empty == False:
+                print('.', end='')
+                prev_empty = False
 
         input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
 
         if input_buffer.shape[1] >= buffer_size:
-            print('input buffer filled, processing')
+            print('buffer full, processing')
             input_queue.put(input_buffer[:, :buffer_size])
             input_buffer = input_buffer[:, buffer_size:]
 
 
-
 def main():
-    thread = threading.Thread(target=zen_thread)
-    thread.start()
-
     try:
-        # Get the default WASAPI loopback device
-        # loopback_device = p.get_default_wasapi_loopback()
-
         # Open an input stream to capture audio from the loopback device
         # NOTE: the device must not be muted or have volume 0 in the operating system settings
         input_stream = pa.open(format=pyaudio.paFloat32,
@@ -200,10 +202,9 @@ def main():
                                frames_per_buffer=frames_per_buffer,
                                output_device_index=dev_out['index'])
 
-        print("Starting audio processing. Press Ctrl+C to stop.")
+        print("[Starting audio processing. Press Ctrl+C to stop.]")
 
         process_forever(input_stream, output_stream)
-
     except KeyboardInterrupt:
         print("\nStopping audio processing.")
     except Exception as e:
@@ -217,6 +218,8 @@ def main():
             output_stream.stop_stream()
             output_stream.close()
         pa.terminate()
+
+        devman.restore_default_audio_device()
 
 if __name__ == "__main__":
     main()

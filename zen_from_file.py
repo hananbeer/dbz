@@ -30,8 +30,8 @@ print('loading model...', end=' ')
 stime = time.perf_counter()
 show_time = lambda: print('%.2fs' % (time.perf_counter() - stime))
 
-import zen
-separator = zen.ZenDemixer(use_gpu=args.gpu)
+import zen_demixer
+separator = zen_demixer.ZenDemixer(use_gpu=args.gpu)
 show_time()
 
 # load audio

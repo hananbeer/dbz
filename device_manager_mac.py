@@ -1,5 +1,7 @@
 import subprocess
 
+default_audio_device = None
+
 def install_blackhole():
     return subprocess.run(['brew', 'install', 'blackhole-2ch'])
 
@@ -18,7 +20,7 @@ def sas_list_audio_devices():
 def sas_get_default_audio_device():
     return sas_run('-a')
 
-def sas_set_audio_device_default(device_id):
+def sas_set_default_audio_device(device_id):
     return sas_run('-s', device_id)
 
 def sas_set_audio_device_mute_state(device_id, is_mute):
@@ -29,6 +31,10 @@ def sas_set_audio_device_mute_state(device_id, is_mute):
 
 def get_audio_devices():
     return sas_list_audio_devices()
+
+def restore_default_audio_device():
+    if default_audio_device:
+        sas_set_default_audio_device(default_audio_device)
 
 def init_macos(try_install=True):
     all_devices = get_audio_devices()
@@ -51,24 +57,13 @@ def init_macos(try_install=True):
         return init_macos(False)
 
     # TODO: what to do if there are multuple devices of this name?
-    blackhole_devices = blackhole_devices[0]
-    print('blackhole device id:', blackhole_devices)
+    blackhole_device = blackhole_devices[0]
+    print('blackhole device id:', blackhole_device)
 
-    # TODO: if device is not active, it will not be listed by svv.
-    # need to test further for this edge case
-    # if vb_cable_device['state'] != 'Active':
-    #     print('VB-Cable installed but not active, enabling device...')
-    #     svv_enable_audio_device(vb_cable_device['id'])
-    #     return False
-
-    # if vb_cable_device['is_muted']:
-    #     print('VB-Cable device is muted, unmuting...')
-    #     svv_set_audio_device_mute_state(vb_cable_device['id'], False)
-
-    # # no need to check volume, just always add 100 to it
-    # svv_audio_device_change_volume(vb_cable_device['id'], 100)
+    # TODO: check if active/disabled, muted, volume
+    
+    global default_audio_device
+    default_audio_device = sas_get_default_audio_device()
+    sas_set_default_audio_device(blackhole_device)
 
     return True
-
-init_macos()
-exit(0)

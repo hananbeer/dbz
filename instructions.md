@@ -88,10 +88,17 @@ conda install -c conda-forge libsndfile
 # Building
 
 ```sh
-conda create -n py310 python=3.10.15
-conda activate py310
+conda create -n dbz python=3.10.15
+conda activate dbz
 pip install -r requirements.txt
+
+# windows:
 pip install pyinstaller==6.11.0
-pyinstaller process_audio.py -y
-pyinstaller process_audio.spec
+pyinstaller zen_mode.py -y --icon=img/zen-256.ico --exclude-module torchvision,torchaudio,scipy,librosa
+pyinstaller zen_mode.spec -y
+
+# mac:
+conda install -c conda-forge pyinstaller
+pyinstaller zen_mode.py -y --icon=img/zen-256.ico --exclude-module pkg_resources
+pyinstaller zen_mode.spec -y
 ```
