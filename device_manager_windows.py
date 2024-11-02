@@ -88,5 +88,3 @@ def init_windows(try_install=True):
     #     return False
 
     return True
-
-init_windows()
