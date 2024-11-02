@@ -49,17 +49,11 @@ def startup(try_install=True):
             return False
 
         print('VB-Cable device not found, installing...')
-        # get original default device because vb installer will change it
-        default_devices = [dev for dev in devices if dev['default'] == 'Render']
 
-        # install vb cable driver (required admin)
+        # install vb cable driver (requires admin)
         install_vb_cable()
 
-        print('VB-Cable installer finished, restoring original default device...')
-
-        # restore original default device
-        if default_devices:
-            svv_set_audio_device_default(default_devices[0]['id'])
+        print('VB-Cable installer finished')
 
         return startup(False)
 
