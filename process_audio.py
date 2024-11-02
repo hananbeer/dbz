@@ -1,27 +1,90 @@
-import zen
+print('starting...')
+
+import re
 import time
 import queue
+import argparse
+import platform
 import threading
 import numpy as np
-import pyaudiowpatch as pyaudio
+
+if platform.system() == 'Windows':
+    import pyaudiowpatch as pyaudio
+else:
+    import pyaudio
 
 # from scipy.signal import resample
 
-use_gpu = True
+import zen
 
-frames_per_buffer = 4096
+parser = argparse.ArgumentParser()
+# TODO: instead of cpu, pass device name (cpu, cuda:0, cuda:1, mps, etc.)
+parser.add_argument('--cpu', action='store_true')
+parser.add_argument('--input')
+parser.add_argument('--output')
+parser.add_argument('--buffer-size', type=int, default=1023)
+parser.add_argument('--samples-per-io', type=int, default=4096)
+args = parser.parse_args()
+
+assert 0 < args.buffer_size < 1024, 'buffer_size must be greater than 0 and less than 1024'
+assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
+
+use_gpu = not args.cpu
+
+frames_per_buffer = args.samples_per_io
 channels = 2
 samplerate = 48000
 # this still works as low as 1024 * 50 but the delay is only marginally lower
 # at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
 # at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
-buffer_size = 1024 * 1023
+buffer_size = 1024 * args.buffer_size
+
+dev_in_pattern = args.input
+if not dev_in_pattern:
+    dev_in_pattern = 'BlackHole|CABLE Input'
+
+dev_out_pattern = args.output
+if not dev_out_pattern:
+    dev_out_pattern = 'Speakers|Headphones'
 
 # volume between 0..1
 #volume = 0.5
 
-input_device_index = 21
-output_device_index = 5
+# Initialize PyAudio
+pa = pyaudio.PyAudio()
+
+# Find the index of the VB Cable / Blackhole device
+dev_in = None
+dev_out = None
+devices_by_name = {}
+devices_by_index = {}
+for i in range(pa.get_device_count()):
+    dev = pa.get_device_info_by_index(i)
+    devices_by_index[dev['index']] = dev
+    devices_by_name[dev['name']] = dev
+
+for idx, dev in devices_by_index.items():
+    if dev['maxInputChannels'] > 0 and (str(idx) == dev_in_pattern or re.search(dev_in_pattern, dev['name'], re.IGNORECASE)):
+        if dev_in:
+            print(f'skipping additional matching input device: {dev["index"]}, {dev["name"]}')
+        else:
+            dev_in = dev
+
+    if dev['maxOutputChannels'] > 0 and (str(idx) == dev_out_pattern or re.search(dev_out_pattern, dev['name'], re.IGNORECASE)):
+        if dev_out:
+            print(f'skipping additional matching output device: {dev["index"]}, {dev["name"]}')
+        else:
+            dev_out = dev
+
+assert dev_in, f'input device not found: {dev_in_pattern}'
+assert dev_out, f'output device not found: {dev_out_pattern}'
+
+print('-' * 80)
+print(f'input device: {dev_in["index"]} {dev_in["name"]} ({dev_in["maxInputChannels"]} channels, samplerate {dev_in["defaultSampleRate"]})')
+print(f'output device: {dev_out["index"]} {dev_out["name"]} ({dev_out["maxOutputChannels"]} channels, samplerate {dev_out["defaultSampleRate"]})')
+print(f'preferred processor: {"cpu" if args.cpu else "gpu"}')
+print(f'buffer size: {buffer_size}')
+print(f'samples per io: {frames_per_buffer}')
 
 input_queue = queue.Queue()
 output_queue = queue.Queue()
@@ -100,29 +163,26 @@ def main():
     thread = threading.Thread(target=zen_thread)
     thread.start()
 
-    # Initialize PyAudio
-    p = pyaudio.PyAudio()
-
     try:
         # Get the default WASAPI loopback device
         # loopback_device = p.get_default_wasapi_loopback()
 
         # Open an input stream to capture audio from the loopback device
         # NOTE: the device must not be muted or have volume 0 in the operating system settings
-        input_stream = p.open(format=pyaudio.paFloat32,
+        input_stream = pa.open(format=pyaudio.paFloat32,
                               channels=channels,
                               rate=samplerate,
                               input=True,
-                              input_device_index=input_device_index,#loopback_device['index'],
+                              input_device_index=dev_in['index'],
                               frames_per_buffer=frames_per_buffer)
 
         # Open an output stream to play the processed audio
-        output_stream = p.open(format=pyaudio.paFloat32,
+        output_stream = pa.open(format=pyaudio.paFloat32,
                                channels=channels,
                                rate=samplerate,
                                output=True,
                                frames_per_buffer=frames_per_buffer,
-                               output_device_index=output_device_index)
+                               output_device_index=dev_out['index'])
 
         print("Starting audio processing. Press Ctrl+C to stop.")
 
@@ -140,7 +200,7 @@ def main():
         if 'output_stream' in locals():
             output_stream.stop_stream()
             output_stream.close()
-        p.terminate()
+        pa.terminate()
 
 if __name__ == "__main__":
     main()
