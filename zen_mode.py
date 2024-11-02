@@ -137,6 +137,7 @@ def audio_output_thread(output_stream):
 
 
 def process_forever(input_stream, output_stream):
+    # NOTE: can open input_stream to start filling back_buffer while model is loading
     print('loading model...', end='\r')
     stime = time.perf_counter()
     demixer = zen_demixer.ZenDemixer(use_gpu=use_gpu)
@@ -211,6 +212,8 @@ def main():
         print(f"An error occurred: {e}")
     finally:
         # Cleanup
+        # TODO: do this in a thread.join() of all other threads or find a better way
+        # to handle crashes/force quits
         if 'input_stream' in locals():
             input_stream.stop_stream()
             input_stream.close()

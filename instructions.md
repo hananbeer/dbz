@@ -94,7 +94,8 @@ pip install -r requirements.txt
 
 # windows:
 pip install pyinstaller==6.11.0
-pyinstaller zen_mode.py -y --icon=img/zen-256.ico --exclude-module torchvision,torchaudio,scipy,librosa
+pyinstaller zen_mode.py -y --onefile --icon=img/zen-256.ico
+# I tried (--exclude-module torchvision,torchaudio,scipy,librosa) but no difference
 pyinstaller zen_mode.spec -y
 
 # mac:
