@@ -1,5 +1,7 @@
 import subprocess
 
+devices = None
+blackhole_device = None
 default_audio_device = None
 
 def install_blackhole():
@@ -32,16 +34,29 @@ def sas_set_audio_device_mute_state(device_id, is_mute):
 def get_audio_devices():
     return sas_list_audio_devices()
 
+def get_default_device_name():
+    return default_audio_device if default_audio_device else '<n/a>'
+
+def set_virtual_audio_device_as_default():
+    print(f'changing default device from {get_default_device_name()} to {blackhole_device}')
+    sas_set_default_audio_device(blackhole_device)
+
 def restore_default_audio_device():
     if default_audio_device:
+        print(f'restoring default device: {default_audio_device}')
         sas_set_default_audio_device(default_audio_device)
+    else:
+        print('unknown which audio device to restore')
 
 def startup(try_install=True):
-    all_devices = get_audio_devices()
+    global devices
+    global blackhole_device
+    global default_audio_device
+    devices = get_audio_devices()
 
     # find VB Cable input device
     # "CABLE Input" ID: {0.0.0.00000000}.{c2a849eb-7157-4779-a1f6-e0518a26ef8e}
-    blackhole_devices = [dev for dev in all_devices if 'blackhole' in dev.lower()]
+    blackhole_devices = [dev for dev in devices if 'blackhole' in dev.lower()]
     if not blackhole_devices:
         if not try_install:
             print('blackhole device not found, installation failed')
@@ -63,8 +78,6 @@ def startup(try_install=True):
 
     # TODO: check if active/disabled, muted, volume
     
-    global default_audio_device
     default_audio_device = sas_get_default_audio_device()
-    sas_set_default_audio_device(blackhole_device)
 
     return True

@@ -1,6 +1,8 @@
 import subprocess
 
-default_audio_devices = []
+devices = None
+vb_cable_device = None
+default_audio_devices = None
 
 def install_vb_cable():
     # as shell so it will request elevated permissions if needed
@@ -36,17 +38,30 @@ def get_audio_devices():
 
     return devices
 
+def get_default_device_name():
+    return default_audio_devices[0]['name'] if default_audio_devices else '<n/a>'
+
+def set_virtual_audio_device_as_default():
+    print(f'changing default device from {get_default_device_name()} to {vb_cable_device["name"]}')
+    svv_set_audio_device_default(vb_cable_device['id'])
+
 def restore_default_audio_device():
-    print('restore called')
     if default_audio_devices:
-        print('restoring default audio device', default_audio_devices)
+        print(f'restoring default audio device: {default_audio_devices[0]["name"]}')
         svv_set_audio_device_default(default_audio_devices[0]['id'])
+    else:
+        print('unknown which audio device to restore')
 
 def startup(try_install=True):
+    global devices
+    global vb_cable_device
+    global default_audio_devices
+
     all_devices = get_audio_devices()
 
     # filter out Application-specific devices and only get Render devices
     devices = [dev for dev in all_devices if dev['type'] == 'Device' and dev['direction'] == 'Render']
+    default_audio_devices = [dev for dev in devices if dev['type'] == 'Device' and dev['default'] == 'Render']
 
     # find VB Cable input device
     # "CABLE Input" ID: {0.0.0.00000000}.{c2a849eb-7157-4779-a1f6-e0518a26ef8e}
@@ -67,7 +82,7 @@ def startup(try_install=True):
 
     # TODO: what to do if there are multuple devices of this name?
     vb_cable_device = vb_cable_devices[0]
-    print('vb device id:', vb_cable_device)
+    # print('vb device id:', vb_cable_device)
 
     # TODO: if device is not active, it will not be listed by svv.
     # need to test further for this edge case
@@ -82,13 +97,5 @@ def startup(try_install=True):
 
     # no need to check volume, just always add 100 to it
     svv_audio_device_change_volume(vb_cable_device['id'], 100)
-
-    if vb_cable_device['default'] != 'Render':
-        global default_audio_devices
-        default_audio_devices = [dev for dev in devices if dev['default'] == 'Render']
-
-        # TODO: set default to render
-        print('VB-Cable device is not default output, setting to default...')
-        svv_set_audio_device_default(vb_cable_device['id'])
 
     return True

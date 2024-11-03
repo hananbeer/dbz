@@ -19,7 +19,7 @@ args = parser.parse_args()
 ### initiate startup, install virtual devices if necessary
 ###
 
-print('starting...')
+print('initializing...')
 
 import platform
 
@@ -43,6 +43,7 @@ except Exception as e:
 import re
 import time
 import queue
+import atexit
 import threading
 import numpy as np
 
@@ -69,6 +70,10 @@ dev_out_pattern = args.output
 if not dev_out_pattern:
     dev_out_pattern = 'Speakers|Headphones'
 
+# this must be called before initializing PyAudio
+devman.set_virtual_audio_device_as_default()
+atexit.register(devman.restore_default_audio_device)
+
 # Initialize PyAudio
 pa = pyaudio.PyAudio()
 
@@ -79,13 +84,13 @@ for idx in range(pa.get_device_count()):
     dev = pa.get_device_info_by_index(idx)
     if dev['maxInputChannels'] > 0 and (str(idx) == dev_in_pattern or re.search(dev_in_pattern, dev['name'], re.IGNORECASE)):
         if dev_in:
-            print(f'skipping additional matching input device: {dev["index"]}, {dev["name"]}')
+            print(f'!! skipping additional matching input device: {dev["index"]}, {dev["name"]}')
         else:
             dev_in = dev
 
     if dev['maxOutputChannels'] > 0 and (str(idx) == dev_out_pattern or re.search(dev_out_pattern, dev['name'], re.IGNORECASE)):
         if dev_out:
-            print(f'skipping additional matching output device: {dev["index"]}, {dev["name"]}')
+            print(f'!! skipping additional matching output device: {dev["index"]}, {dev["name"]}')
         else:
             dev_out = dev
 
@@ -103,8 +108,8 @@ print('=' * 80)
 input_queue = queue.Queue()
 output_queue = queue.Queue()
 
-def print_time(stime, msg):
-    print(f'\r{msg}: %.2fs' % (time.perf_counter() - stime))
+def print_time(stime, msg, end='\n'):
+    print(f'\r{msg}: %.2fs' % (time.perf_counter() - stime), end=end)
 
 def zen_thread(demixer):
     back_buffer = np.zeros((channels, 0), dtype=np.float32)
@@ -120,7 +125,7 @@ def zen_thread(demixer):
 
         stime = time.perf_counter()
         output_buffer = demixer.demix(input_buffer) #, buffer_size=demixer.chunk_size)
-        print_time(stime, 'demixed audio')
+        print_time(stime, 'demixed audio', end='\r')
 
         output_queue.put(output_buffer[:, -buffer_size:])
         back_buffer = back_buffer[:, -demixer.chunk_size:]
@@ -224,6 +229,8 @@ def main():
         print(f"An error occurred: {e}")
     finally:
         # Cleanup
+        devman.restore_default_audio_device()
+
         # TODO: do this in a thread.join() of all other threads or find a better way
         # to handle crashes/force quits
         if 'input_stream' in locals():
@@ -238,9 +245,10 @@ def main():
                 output_stream.close()
             except:
                 pass
+
         pa.terminate()
 
-        devman.restore_default_audio_device()
+        time.sleep(3)
         exit(1)
 
 if __name__ == "__main__":
