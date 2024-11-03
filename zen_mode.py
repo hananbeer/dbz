@@ -1,5 +1,3 @@
-print('starting...')
-
 ###
 ### parse args
 ###
@@ -12,7 +10,7 @@ parser.add_argument('--cpu', action='store_true')
 parser.add_argument('--input')
 parser.add_argument('--output')
 parser.add_argument('--buffer-size', type=int, default=127)
-parser.add_argument('--samples-per-io', type=int, default=1024)
+parser.add_argument('--samples-per-io', type=int, default=4096)
 # parser.add_argument('--volume', type=int, default=100)
 # parser.add_argument('--volume-vocals', type=int, default=0)
 args = parser.parse_args()
@@ -20,6 +18,8 @@ args = parser.parse_args()
 ###
 ### initiate startup, install virtual devices if necessary
 ###
+
+print('starting...')
 
 import platform
 
@@ -30,7 +30,11 @@ else:
     import pyaudio
     import device_manager_mac as devman
 
-assert devman.startup(), 'startup failed, ensure virtual devices are installed properly'
+try:
+    assert devman.startup(), 'startup failed, ensure virtual devices are installed properly'
+except Exception as e:
+    print(f'startup failed: {e}')
+    exit(1)
 
 ###
 ### start app
@@ -143,28 +147,36 @@ def process_forever(input_stream, output_stream):
     demixer = zen_demixer.ZenDemixer(use_gpu=use_gpu)
     print_time(stime, 'model loaded')
 
-    thread = threading.Thread(target=zen_thread, args=(demixer,))
-    thread.start()
+    zthread = threading.Thread(target=zen_thread, args=(demixer,), daemon=True)
+    zthread.start()
 
-    thread = threading.Thread(target=audio_output_thread, args=(output_stream,))
-    thread.start()
+    athread = threading.Thread(target=audio_output_thread, args=(output_stream,), daemon=True)
+    athread.start()
 
     input_buffer = np.zeros((channels, 0), dtype=np.float32)
 
     prev_empty = None
     while True:
+        if not zthread.is_alive():
+            print('zen thread stopped unexpectedly, halting')
+            break
+
+        if not athread.is_alive():
+            print('audio output thread stopped unexpectedly, halting')
+            break
+
         # len(input_data) == (frames_per_buffer * channels * sizeof(float))
         input_data = input_stream.read(frames_per_buffer)
 
         # len(audio_data) == (frames_per_buffer * channels)
-        audio_data_compact = np.array(np.frombuffer(input_data, dtype=np.float32))
+        audio_data_compact = np.frombuffer(input_data, dtype=np.float32)
 
+        # example how to resample, probably not needed
         # demix_samplerate = 44100
         # audio_data_compact = resample(audio_data_compact, int(len(audio_data_compact) * demix_samplerate / samplerate))
 
         # audio_data_compact has interleaved samples for each channel, convert to separate channels
         audio_data = audio_data_compact.reshape((-1, channels)).transpose()
-        # audio_data = np.array([audio_data_compact[::2], audio_data_compact[1::2]])
 
         if not audio_data.any():
             if not prev_empty:
@@ -172,14 +184,14 @@ def process_forever(input_stream, output_stream):
                 prev_empty = True
             #continue
         else:
-            if prev_empty == False:
-                print('.', end='')
+            if prev_empty:
+                print('got audio data')
                 prev_empty = False
 
         input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
 
         if input_buffer.shape[1] >= buffer_size:
-            print('buffer full, processing')
+            # print('buffer full, processing')
             input_queue.put(input_buffer[:, :buffer_size])
             input_buffer = input_buffer[:, buffer_size:]
 
@@ -215,14 +227,21 @@ def main():
         # TODO: do this in a thread.join() of all other threads or find a better way
         # to handle crashes/force quits
         if 'input_stream' in locals():
-            input_stream.stop_stream()
-            input_stream.close()
+            try:
+                input_stream.stop_stream()
+                input_stream.close()
+            except:
+                pass
         if 'output_stream' in locals():
-            output_stream.stop_stream()
-            output_stream.close()
+            try:
+                output_stream.stop_stream()
+                output_stream.close()
+            except:
+                pass
         pa.terminate()
 
         devman.restore_default_audio_device()
+        exit(1)
 
 if __name__ == "__main__":
     main()

@@ -90,16 +90,18 @@ conda install -c conda-forge libsndfile
 ```sh
 conda create -n dbz python=3.10.15
 conda activate dbz
+conda create -n dbz python=3.10.15
+conda activate dbz
 pip install -r requirements.txt
 
-# windows:
+# on windows:
 pip install pyinstaller==6.11.0
-pyinstaller zen_mode.py -y --onefile --icon=img/zen-256.ico
-# I tried (--exclude-module torchvision,torchaudio,scipy,librosa) but no difference
-pyinstaller zen_mode.spec -y
+pyinstaller process_audio.py -y --onefile
+pyinstaller process_audio.spec -y
 
-# mac:
+# on macos:
 conda install -c conda-forge pyinstaller
-pyinstaller zen_mode.py -y --icon=img/zen-256.ico --exclude-module pkg_resources
-pyinstaller zen_mode.spec -y
+pyinstaller --exclude-module pkg_resources process_audio.py -y --onefile
+pyinstaller process_audio.spec -y
+
 ```

@@ -18,7 +18,7 @@ def sas_list_audio_devices():
     return sas_run('-a').strip().split('\n')
 
 def sas_get_default_audio_device():
-    return sas_run('-a')
+    return sas_run('-c').strip()
 
 def sas_set_default_audio_device(device_id):
     return sas_run('-s', device_id)
@@ -36,7 +36,7 @@ def restore_default_audio_device():
     if default_audio_device:
         sas_set_default_audio_device(default_audio_device)
 
-def init_macos(try_install=True):
+def startup(try_install=True):
     all_devices = get_audio_devices()
 
     # find VB Cable input device
@@ -54,7 +54,7 @@ def init_macos(try_install=True):
 
         print('blackhole installer finished')
 
-        return init_macos(False)
+        return startup(False)
 
     # TODO: what to do if there are multuple devices of this name?
     blackhole_device = blackhole_devices[0]
