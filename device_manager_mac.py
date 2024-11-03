@@ -51,6 +51,7 @@ def startup(try_install=True):
 
         # install vb cable driver (requires password)
         install_blackhole()
+        install_switchaudio()
 
         print('blackhole installer finished')
 
