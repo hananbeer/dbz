@@ -1,0 +1,12 @@
+build/
+dist/
+bak/
+__pycache__/
+deps/
+dist_/
+input/
+output/
+tmp/
+models/model_data/
+dev_list.csv
+*.zip
