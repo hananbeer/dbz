@@ -58,7 +58,7 @@ def startup(try_install=True):
 
     # TODO: what to do if there are multuple devices of this name?
     blackhole_device = blackhole_devices[0]
-    print('blackhole device id:', blackhole_device)
+    # print('blackhole device id:', blackhole_device)
 
     # TODO: check if active/disabled, muted, volume
     

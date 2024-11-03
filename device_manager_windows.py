@@ -37,7 +37,6 @@ def get_audio_devices():
     return devices
 
 def restore_default_audio_device():
-    print('restore called')
     if default_audio_devices:
         print('restoring default audio device', default_audio_devices)
         svv_set_audio_device_default(default_audio_devices[0]['id'])
@@ -67,7 +66,7 @@ def startup(try_install=True):
 
     # TODO: what to do if there are multuple devices of this name?
     vb_cable_device = vb_cable_devices[0]
-    print('vb device id:', vb_cable_device)
+    # print('vb device id:', vb_cable_device)
 
     # TODO: if device is not active, it will not be listed by svv.
     # need to test further for this edge case

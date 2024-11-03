@@ -6,20 +6,22 @@ import argparse
 
 parser = argparse.ArgumentParser()
 # TODO: instead of cpu, pass device name (cpu, cuda:0, cuda:1, mps, etc.)
-parser.add_argument('--cpu', action='store_true')
-parser.add_argument('--input')
-parser.add_argument('--output')
-parser.add_argument('--buffer-size', type=int, default=127)
-parser.add_argument('--samples-per-io', type=int, default=4096)
-# parser.add_argument('--volume', type=int, default=100)
-# parser.add_argument('--volume-vocals', type=int, default=0)
+parser.add_argument('--cpu', action='store_true', help='use cpu even if gpu is available')
+parser.add_argument('--list', nargs='?', choices=['input', 'output', 'both'], const='both', help='list audio devices and exit')
+parser.add_argument('--input', help='input device index or pattern')
+parser.add_argument('--output', help='output device index or pattern')
+parser.add_argument('--buffer-size', type=int, default=127, help='demixer audio buffer size (in kB) per processing pass. lower value could reduce delay, but too low may result in audio stuttering')
+parser.add_argument('--samples-per-io', type=int, default=4096, help='audio samples per read/write. lower value could reduce delay, but too low may result in audio stuttering')
+# parser.add_argument('--volume', type=int, default=100, help='instrumentals volume level')
+# parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
 args = parser.parse_args()
+
+assert 0 < args.buffer_size < 128, 'buffer_size must be greater than 0 and less than 128'
+assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
 
 ###
 ### initiate startup, install virtual devices if necessary
 ###
-
-print('starting...')
 
 import platform
 
@@ -29,6 +31,30 @@ if platform.system() == 'Windows':
 else:
     import pyaudio
     import device_manager_mac as devman
+
+# NOTE: this should be above devman.startup(), but (at least on windows) it changes the indices of the devices...
+# Initialize PyAudio
+pa = pyaudio.PyAudio()
+
+if args.list:
+    for idx in range(pa.get_device_count()):
+        dev = pa.get_device_info_by_index(idx)
+        is_input = dev['maxInputChannels'] > 0
+        is_output = dev['maxOutputChannels'] > 0
+        if args.list.lower() == 'input' and not is_input:
+            continue
+
+        if args.list.lower() == 'output' and not is_output:
+            continue
+
+        dev_type = 'both' if is_input and is_output else 'input' if is_input else 'output' if is_output else 'unknown'
+        print(f'{dev["name"]} ({dev_type})')
+
+    exit(0)
+
+# devman.startup() will change the order of the devices
+# so a new pyaudio instance is needed here
+default_output_device_name = pyaudio.PyAudio().get_default_output_device_info()['name']
 
 try:
     assert devman.startup(), 'startup failed, ensure virtual devices are installed properly'
@@ -48,29 +74,51 @@ import numpy as np
 
 import zen_demixer
 
-assert 0 < args.buffer_size < 128, 'buffer_size must be greater than 0 and less than 128'
-assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
-
 use_gpu = not args.cpu
 
 frames_per_buffer = args.samples_per_io
 channels = 2
-samplerate = 48000
+# samplerate = 48000
 # this still works as low as 1024 * 50 but the delay is only marginally lower
 # at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
 # at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
 buffer_size = 1024 * args.buffer_size
 
+def play_boop(dev_out, repeat=3):
+    output_stream = pa.open(format=pyaudio.paFloat32,
+                            channels=channels,
+                            rate=int(dev_out['defaultSampleRate']),
+                            output=True,
+                            frames_per_buffer=frames_per_buffer,
+                            output_device_index=dev_out['index'])
+
+    boop = np.fromfile('boop.bin', dtype=np.float32)
+    for i in range(repeat):
+        output_stream.write(boop.tobytes())
+
+    output_stream.close()
+
 dev_in_pattern = args.input
 if not dev_in_pattern:
-    dev_in_pattern = 'BlackHole|CABLE Input'
+    dev_in_pattern = '(^BlackHole 2ch$)|(^CABLE Input)'
 
 dev_out_pattern = args.output
 if not dev_out_pattern:
-    dev_out_pattern = 'Speakers|Headphones'
+    dev_out_pattern = re.escape(default_output_device_name)
 
-# Initialize PyAudio
-pa = pyaudio.PyAudio()
+    # help user find device by playing an audio on each output device and asking if it's the correct one
+    # NOTE: all of thise wouldn't be necessary if devman.startup() wouldn't mess with the indices...
+    # for idx in range(pa.get_device_count()):
+    #     dev = pa.get_device_info_by_index(idx)
+    #     if dev['maxOutputChannels'] > 0:
+    #         print(f'testing output device: {dev["index"]} {dev["name"]}')
+    #         play_boop(dev)
+    #         if input('is this the correct output device? [y/N] ').lower() == 'y':
+    #             dev_out_pattern = str(dev['index'])
+    #             break
+    # else:
+    #     dev_out_pattern = 'Speakers|Headphones'
+    #     print('no output device found, will search for:', dev_out_pattern)
 
 # Find the index of the VB Cable / Blackhole device
 dev_in = None
@@ -139,7 +187,6 @@ def audio_output_thread(output_stream):
         output_stream.write(output_data_compact.tobytes())
         # print_time(stime, 'played processed audio')
 
-
 def process_forever(input_stream, output_stream):
     # NOTE: can open input_stream to start filling back_buffer while model is loading
     print('loading model...', end='\r')
@@ -202,7 +249,7 @@ def main():
         # NOTE: the device must not be muted or have volume 0 in the operating system settings
         input_stream = pa.open(format=pyaudio.paFloat32,
                               channels=channels,
-                              rate=samplerate,
+                              rate=int(dev_in['defaultSampleRate']),
                               input=True,
                               input_device_index=dev_in['index'],
                               frames_per_buffer=frames_per_buffer)
@@ -210,7 +257,7 @@ def main():
         # Open an output stream to play the processed audio
         output_stream = pa.open(format=pyaudio.paFloat32,
                                channels=channels,
-                               rate=samplerate,
+                               rate=int(dev_out['defaultSampleRate']),
                                output=True,
                                frames_per_buffer=frames_per_buffer,
                                output_device_index=dev_out['index'])
@@ -219,9 +266,10 @@ def main():
 
         process_forever(input_stream, output_stream)
     except KeyboardInterrupt:
-        print("\nStopping audio processing.")
+        print("\nShutting down...")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        import traceback
+        print(traceback.format_exc())
     finally:
         # Cleanup
         # TODO: do this in a thread.join() of all other threads or find a better way

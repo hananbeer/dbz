@@ -21,6 +21,9 @@ Note this makes it possible to change specific applications audio output in the 
 - add splash
 - ui
 - keyboard shortcuts
+- pause feature
+- multiply by current volume level
+- test cpu further, perhaps stretch signal when processing is too slow to make it continuous
 
 # Windows
 
@@ -90,18 +93,16 @@ conda install -c conda-forge libsndfile
 ```sh
 conda create -n dbz python=3.10.15
 conda activate dbz
-conda create -n dbz python=3.10.15
-conda activate dbz
 pip install -r requirements.txt
 
-# on windows:
+# windows:
 pip install pyinstaller==6.11.0
-pyinstaller process_audio.py -y --onefile
-pyinstaller process_audio.spec -y
+pyinstaller zen_mode.py -y --onefile --icon=img/zen-256.ico
+# I tried (--exclude-module torchvision,torchaudio,scipy,librosa) but no difference
+pyinstaller zen_mode.spec -y
 
-# on macos:
+# mac:
 conda install -c conda-forge pyinstaller
-pyinstaller --exclude-module pkg_resources process_audio.py -y --onefile
-pyinstaller process_audio.spec -y
-
+pyinstaller zen_mode.py -y --icon=img/zen-256.ico --exclude-module pkg_resources
+pyinstaller zen_mode.spec -y
 ```
