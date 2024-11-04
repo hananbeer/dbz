@@ -59,15 +59,13 @@ class STFT:
 class ZenDemixer:
     model_path = './models/UVR-MDX-NET-Inst_HQ_3.onnx'
 
-    adjust = 1
+    # stft params
     hop = 1024
     dim_f = 3072
-    dim_t = 2 ** 8
+    dim_t = 256
     n_fft = 6144
-    mdx_segment_size = 128
-    chunk_size = hop * (mdx_segment_size - 1)
 
-    def __init__(self, use_gpu=True):
+    def __init__(self, use_gpu=True, segment_size=256):
         if use_gpu and torch.backends.mps.is_available():
             self.device = 'mps'
         elif use_gpu and torch.cuda.is_available():
@@ -76,29 +74,34 @@ class ZenDemixer:
             self.device = 'cpu'
 
         self.stft = STFT(self.n_fft, self.hop, self.dim_f, self.device)
+        self.segment_size = segment_size
+        self.chunk_size = self.hop * (segment_size - 1)
         self._load_model()
 
     def _load_model(self):
         self.model = ConvertModel(onnx.load(self.model_path))
         self.model.to(self.device).eval()
 
-    def run_model(self, mix, adjust=1.0):
+    def run_model(self, mix, volume_music=1.0, volume_vocals=0.0):
         """
         expects `mix` to be a `torch.tensor` of shape (batch_size=1, channels=2, samples=self.chunk_size)
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         spec = self.stft(mix.to(self.device))
-        if adjust != 1.0:
-            spec *= adjust
-
-        spec[:, :, :3, :] *= 0 
+        # spec[:, :, :3, :] *= 0
         with torch.no_grad():
             spec_pred = self.model(spec)
 
-        tensor = torch.tensor(spec_pred).to(self.device)
-        return self.stft.inverse(tensor).cpu().detach().numpy()
+        if volume_vocals > 0:
+            vocals = (spec - spec_pred) * volume_vocals
+            spec_result = (spec_pred * volume_music) + vocals
+        else:
+            spec_result = spec_pred * volume_music
 
-    def demix(self, mix, buffer_size=None, progress_cb=None):
+        spec_result_tensor = torch.tensor(spec_result).to(self.device)
+        return self.stft.inverse(spec_result_tensor).cpu().detach().numpy()
+
+    def demix(self, mix, buffer_size=None, progress_cb=None, volume_music=1.0, volume_vocals=0.0):
         """
         the model always processes chunks of self.chunk_size samples
 
@@ -136,7 +139,7 @@ class ZenDemixer:
                 chunk = np.concatenate((chunk, padding), axis=-1)
 
             chunk_tensor = torch.tensor(np.array([chunk]), dtype=torch.float32).to(self.device)
-            spec_pred = self.run_model(chunk_tensor, adjust=self.adjust)
+            spec_pred = self.run_model(chunk_tensor, volume_music=volume_music, volume_vocals=volume_vocals)
             result[:, start:end] = spec_pred[..., :buffer_size]
 
             if progress_cb:

@@ -7,12 +7,13 @@ import argparse
 parser = argparse.ArgumentParser()
 # TODO: instead of cpu, pass device name (cpu, cuda:0, cuda:1, mps, etc.)
 parser.add_argument('--cpu', action='store_true')
-parser.add_argument('--input')
-parser.add_argument('--output')
-parser.add_argument('--buffer-size', type=int, default=127)
-parser.add_argument('--samples-per-io', type=int, default=4096)
-# parser.add_argument('--volume', type=int, default=100)
-# parser.add_argument('--volume-vocals', type=int, default=0)
+parser.add_argument('--virtual-device')
+parser.add_argument('--output-device')
+parser.add_argument('--model-size', type=int, choices=[5, 6, 7, 8, 9, 10, 11], default=5)
+parser.add_argument('--buffer-size', type=int, default=None)
+parser.add_argument('--samples-per-io', type=int, default=1024)
+parser.add_argument('--volume-music', type=int, default=100, help='music volume level')
+parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
 args = parser.parse_args()
 
 ###
@@ -45,30 +46,39 @@ import time
 import queue
 import atexit
 import threading
+import traceback
 import numpy as np
 
 import zen_demixer
 
-assert 0 < args.buffer_size < 128, 'buffer_size must be greater than 0 and less than 128'
-assert 0 < args.samples_per_io < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
-
 use_gpu = not args.cpu
 
+model_size = args.model_size
+buffer_base = args.buffer_size if args.buffer_size else (2 ** model_size - 1)
 frames_per_buffer = args.samples_per_io
+
+volume_music = args.volume_music / 100.0
+volume_vocals = args.volume_vocals / 100.0
+
+assert 0 < buffer_base < 2 ** model_size, 'buffer_size must be greater than 0 and less than 128'
+assert 0 < frames_per_buffer < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
+
 channels = 2
-samplerate = 48000
+
 # this still works as low as 1024 * 50 but the delay is only marginally lower
 # at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
 # at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
-buffer_size = 1024 * args.buffer_size
+buffer_size = 1024 * buffer_base
 
-dev_in_pattern = args.input
+dev_in_pattern = args.virtual_device
 if not dev_in_pattern:
     dev_in_pattern = 'BlackHole|CABLE Input'
 
-dev_out_pattern = args.output
+dev_out_pattern = args.output_device
 if not dev_out_pattern:
     dev_out_pattern = 'Speakers|Headphones'
+
+print('dev_out_pattern', dev_out_pattern)
 
 # this must be called before initializing PyAudio
 devman.set_virtual_audio_device_as_default()
@@ -111,48 +121,56 @@ output_queue = queue.Queue()
 def print_time(stime, msg, end='\n'):
     print(f'\r{msg}: %.2fs' % (time.perf_counter() - stime), end=end)
 
-def zen_thread(demixer):
-    back_buffer = np.zeros((channels, 0), dtype=np.float32)
-
+def demixer_thread(demixer):
     assert buffer_size <= demixer.chunk_size, 'buffer_size must be less than or equal to demixer.chunk_size'
 
-    while True:
-        input_buffer = input_queue.get()
-        # take the last chunk_size samples
-        if len(input_buffer) < demixer.chunk_size:
-            remainder = demixer.chunk_size - len(input_buffer)
-            input_buffer = np.concatenate((back_buffer[:, -remainder:], input_buffer), axis=1)
+    back_buffer = np.zeros((channels, 0), dtype=np.float32)
 
-        stime = time.perf_counter()
-        output_buffer = demixer.demix(input_buffer) #, buffer_size=demixer.chunk_size)
-        print_time(stime, 'demixed audio', end='\r')
+    try:
+        while True:
+            input_buffer = input_queue.get()
+            # take the last chunk_size samples
+            if len(input_buffer) < demixer.chunk_size:
+                remainder = demixer.chunk_size - len(input_buffer)
+                input_buffer = np.concatenate((back_buffer[:, -remainder:], input_buffer), axis=1)
 
-        output_queue.put(output_buffer[:, -buffer_size:])
-        back_buffer = back_buffer[:, -demixer.chunk_size:]
+            stime = time.perf_counter()
+            output_buffer = demixer.demix(input_buffer, volume_music=volume_music, volume_vocals=volume_vocals) #, buffer_size=demixer.chunk_size)
+            print_time(stime, 'demixed audio', end='\r')
+
+            output_queue.put(output_buffer[:, -buffer_size:])
+            back_buffer = back_buffer[:, -demixer.chunk_size:]
+    except Exception as e:
+        print(f'demixer thread error')
+        print(traceback.format_exc())
 
 def audio_output_thread(output_stream):
-    while True:
-        # if output_queue.empty():
-        #     # TODO: output some default soundwave
-        #     continue
+    try:
+        while True:
+            # if output_queue.empty():
+            #     # TODO: output some default soundwave
+            #     continue
 
-        output_data = output_queue.get()
-        output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
-        
-        # writing to output_stream is blocking, so it takes len(output_data_compact) / samplerate seconds to play
-        # stime = time.perf_counter()
-        output_stream.write(output_data_compact.tobytes())
-        # print_time(stime, 'played processed audio')
+            output_data = output_queue.get()
+            output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
+
+            # writing to output_stream is blocking, so it takes len(output_data_compact) / samplerate seconds to play
+            # stime = time.perf_counter()
+            output_stream.write(output_data_compact.tobytes())
+            # print_time(stime, 'played processed audio')
+    except Exception as e:
+        print(f'audio output thread error')
+        print(traceback.format_exc())
 
 
 def process_forever(input_stream, output_stream):
     # NOTE: can open input_stream to start filling back_buffer while model is loading
     print('loading model...', end='\r')
     stime = time.perf_counter()
-    demixer = zen_demixer.ZenDemixer(use_gpu=use_gpu)
+    demixer = zen_demixer.ZenDemixer(use_gpu=use_gpu, segment_size=2 ** model_size)
     print_time(stime, 'model loaded')
 
-    zthread = threading.Thread(target=zen_thread, args=(demixer,), daemon=True)
+    zthread = threading.Thread(target=demixer_thread, args=(demixer,), daemon=True)
     zthread.start()
 
     athread = threading.Thread(target=audio_output_thread, args=(output_stream,), daemon=True)
@@ -202,12 +220,15 @@ def process_forever(input_stream, output_stream):
 
 
 def main():
+    input_stream = None
+    output_stream = None
+
     try:
         # Open an input stream to capture audio from the loopback device
         # NOTE: the device must not be muted or have volume 0 in the operating system settings
         input_stream = pa.open(format=pyaudio.paFloat32,
                               channels=channels,
-                              rate=samplerate,
+                              rate=int(dev_in['defaultSampleRate']),
                               input=True,
                               input_device_index=dev_in['index'],
                               frames_per_buffer=frames_per_buffer)
@@ -215,31 +236,32 @@ def main():
         # Open an output stream to play the processed audio
         output_stream = pa.open(format=pyaudio.paFloat32,
                                channels=channels,
-                               rate=samplerate,
+                               rate=int(dev_in['defaultSampleRate']), # TODO: using same sample rate here, assuming it will work but need to fix - either resample or use dev_out['defaultSampleRate']
                                output=True,
                                frames_per_buffer=frames_per_buffer,
                                output_device_index=dev_out['index'])
 
-        print("[Starting audio processing. Press Ctrl+C to stop.]")
+        print("[starting audio processing. press CTRL+C to stop.]")
 
         process_forever(input_stream, output_stream)
     except KeyboardInterrupt:
-        print("\nStopping audio processing.")
+        print("\nstopping audio processing.")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"an error occurred")
+        print(traceback.format_exc())
     finally:
-        # Cleanup
-        devman.restore_default_audio_device()
+        # cleanup
 
         # TODO: do this in a thread.join() of all other threads or find a better way
         # to handle crashes/force quits
-        if 'input_stream' in locals():
+        if input_stream:
             try:
                 input_stream.stop_stream()
                 input_stream.close()
             except:
                 pass
-        if 'output_stream' in locals():
+
+        if output_stream:
             try:
                 output_stream.stop_stream()
                 output_stream.close()
@@ -251,5 +273,4 @@ def main():
         time.sleep(3)
         exit(1)
 
-if __name__ == "__main__":
-    main()
+main()
