@@ -251,6 +251,8 @@ def main():
         print(traceback.format_exc())
     finally:
         # cleanup
+        # this will also be called atexit callback, but it seems it is not always called? so just call here too
+        devman.restore_default_audio_device()
 
         # TODO: do this in a thread.join() of all other threads or find a better way
         # to handle crashes/force quits

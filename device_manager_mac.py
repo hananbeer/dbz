@@ -48,6 +48,12 @@ def restore_default_audio_device():
     else:
         print('unknown which audio device to restore')
 
+def get_system_volume():
+    return 1.0
+
+def set_volume(device_id, volume):
+    pass
+
 def startup(try_install=True):
     global devices
     global blackhole_device
