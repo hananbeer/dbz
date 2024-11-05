@@ -94,11 +94,12 @@ class ZenDemixer:
 
         if volume_vocals > 0:
             vocals = (spec - spec_pred) * volume_vocals
-            spec_result = (spec_pred * volume_music) + vocals
-        else:
-            spec_result = spec_pred * volume_music
+            spec_pred += vocals
 
-        spec_result_tensor = torch.tensor(spec_result).to(self.device)
+        if volume_music != 1.0:
+            spec_pred *= volume_music
+
+        spec_result_tensor = torch.tensor(spec_pred).to(self.device)
         return self.stft.inverse(spec_result_tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, volume_music=1.0, volume_vocals=0.0):
