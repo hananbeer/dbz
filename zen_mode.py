@@ -12,7 +12,7 @@ parser.add_argument('--output-device')
 parser.add_argument('--model-size', type=int, choices=[5, 6, 7, 8, 9, 10, 11], default=5)
 parser.add_argument('--buffer-size', type=int, default=None)
 parser.add_argument('--samples-per-io', type=int, default=1024)
-parser.add_argument('--volume-music', type=int, default=200, help='overall volume level')
+parser.add_argument('--volume-multiplier', type=int, default=200, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
 parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
 args = parser.parse_args()
 
@@ -221,12 +221,12 @@ class ZenMode:
 
             if not audio_data.any():
                 if not prev_empty:
-                    print('empty buffer')
+                    print('empty buffer', end='\r')
                     prev_empty = True
                 #continue
             else:
                 if prev_empty:
-                    print('got audio data')
+                    print('got audio data', end='\r')
                     prev_empty = False
 
             input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
@@ -298,7 +298,7 @@ def main():
     zen.buffer_size = 1024 * buffer_base
     zen.frames_per_buffer = args.samples_per_io
 
-    zen.volume_music = args.volume_music / 100.0
+    zen.volume_music = args.volume_multiplier / 100.0
     zen.volume_vocals = args.volume_vocals / 100.0
     og_volume_multiplier = zen.volume_music
 
@@ -346,17 +346,19 @@ def main():
         # (windows support is hell, api is so buggy)
         time.sleep(5)
 
-        prev_volume = devman.get_system_volume()
+        prev_volume = None
         while zen.record_thread.is_alive():
             try:
                 virtual_device_volume = devman.get_system_volume()
                 if virtual_device_volume != prev_volume:
                     prev_volume = virtual_device_volume
-                    zen.volume_music = virtual_device_volume * og_volume_multiplier
-                    print('setting virtual device volume to', virtual_device_volume)
+                    # NOTE: do not change volume_music since both the playback & the virtual device volumes are affected
+                    # zen.volume_music = virtual_device_volume * og_volume_multiplier
+                    # print('setting virtual device volume to', int(100*virtual_device_volume)
                     devman.set_volume(zen.dev_out['name'], virtual_device_volume)
             except BaseException as e:
-                print(f'error getting system volume: {e}')
+                # print(f'error getting system volume: {e}')
+                pass
 
             time.sleep(1)
     except KeyboardInterrupt:
