@@ -63,7 +63,9 @@ def get_system_volume():
     return volume.GetMasterVolumeLevelScalar()
 
 def set_volume(device_id, volume):
-    return svv_run('/SetVolume', device_id, str(volume))
+    # idk, full name doesn't work on windows. just guess it's the first part of the name
+    trimmed_device_id = device_id.split(' ')[0]
+    return svv_run('/SetVolume', trimmed_device_id, str(int(volume * 100)))
 
 def startup(try_install=True):
     global devices

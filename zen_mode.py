@@ -50,8 +50,10 @@ if args.list:
 
 print('initializing...')
 
+# devman.startup() will install virtual devices if necessary
+# running before potentially heavy imports for quick error reporting
 try:
-    assert devman.startup(), 'startup failed, ensure virtual devices are installed properly'
+    assert devman.startup(), 'ensure virtual devices are installed properly'
 except Exception as e:
     print(f'startup failed: {e}')
     exit(1)
@@ -101,7 +103,7 @@ class ZenMode:
         self.output_queue = queue.Queue()
 
     def load_model(self):
-        assert 0 < self.buffer_size < 1024 * (2 ** self.model_size), f'buffer_size must be greater than 0 and less than {2 ** self.model_size}'
+        assert 0 < self.buffer_size < 1024 * (2 ** self.model_size), f'buffer_size must be greater than 0 and less than {1024 * (2 ** self.model_size)}'
 
         # 128 kB is kind of arbitrary
         assert 0 < self.frames_per_buffer < 1024 * 128, 'samples_per_io must be greater than 0 and less than 1024 * 128'
@@ -290,19 +292,15 @@ def main():
     atexit.register(devman.restore_default_audio_device)
 
     zen = ZenMode()
-
-    model_size = args.model_size
-    buffer_base = args.buffer_size if args.buffer_size else (2 ** model_size - 1)
-
     zen.use_gpu = not args.cpu
+    zen.model_size = args.model_size
+    buffer_base = args.buffer_size if args.buffer_size else (2 ** zen.model_size - 1)
+    zen.buffer_size = 1024 * buffer_base
     zen.frames_per_buffer = args.samples_per_io
+
     zen.volume_music = args.volume_music / 100.0
     zen.volume_vocals = args.volume_vocals / 100.0
-
-    # this still works as low as 1024 * 50 but the delay is only marginally lower
-    # at 1024 * 1023 and samplerate = 48000 the delay is about 1024 * 1023 / 48000 = 21.824 seconds
-    # at 1024 * 50 it should be ~1sec delay but getting about ~9sec delay
-    zen.buffer_size = 1024 * buffer_base
+    og_volume_multiplier = zen.volume_music
 
     dev_in_pattern = args.virtual_device
     if not dev_in_pattern:
@@ -344,16 +342,30 @@ def main():
         # zen.init_pyaudio(dev_in_pattern, 'Headphones')
         # zen.start()
 
-        # TODO: instead of join() check volume levels and adjust
+        # on windows it needs a little bit of time or it crashes?!
+        # (windows support is hell, api is so buggy)
+        time.sleep(5)
+
+        prev_volume = devman.get_system_volume()
         while zen.record_thread.is_alive():
-            time.sleep(10)
+            try:
+                virtual_device_volume = devman.get_system_volume()
+                if virtual_device_volume != prev_volume:
+                    prev_volume = virtual_device_volume
+                    zen.volume_music = virtual_device_volume * og_volume_multiplier
+                    print('setting virtual device volume to', virtual_device_volume)
+                    devman.set_volume(zen.dev_out['name'], virtual_device_volume)
+            except BaseException as e:
+                print(f'error getting system volume: {e}')
+
+            time.sleep(1)
     except KeyboardInterrupt:
         pass
     except BaseException as e:
         print(f"an error occurred")
         print(traceback.format_exc())
     finally:
-        print("\nsshutting down...")
+        print("\nshutting down...")
         zen.shutdown()
         exit(1)
 
