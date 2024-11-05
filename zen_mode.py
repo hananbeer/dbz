@@ -342,6 +342,10 @@ def main():
         # zen.init_pyaudio(dev_in_pattern, 'Headphones')
         # zen.start()
 
+        # 25%
+        devman.set_volume(zen.dev_in['name'], 0.25)
+        devman.set_volume(zen.dev_out['name'], 0.25)
+
         # on windows it needs a little bit of time or it crashes?!
         # (windows support is hell, api is so buggy)
         time.sleep(5)

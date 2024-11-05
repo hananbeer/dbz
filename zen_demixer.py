@@ -88,18 +88,22 @@ class ZenDemixer:
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         spec = self.stft(mix.to(self.device))
-        # spec[:, :, :3, :] *= 0
+
         with torch.no_grad():
             spec_pred = self.model(spec)
 
+        spec_result_tensor = torch.tensor(spec_pred).to(self.device)
         if volume_vocals > 0:
-            vocals = (spec - spec_pred) * volume_vocals
-            spec_pred += vocals
+            vocals = (spec - spec_result_tensor) * volume_vocals
+            spec_result_tensor += vocals
 
         if volume_music != 1.0:
-            spec_pred *= volume_music
+            spec_result_tensor *= volume_music
 
-        spec_result_tensor = torch.tensor(spec_pred).to(self.device)
+        # filter out some frequencies (it's supposed to help remove clicking, but idk if it helps and may cost few milliseconds)
+        # spec_result_tensor[:, :, :5, :] *= 0
+        # spec_result_tensor[:, :, :5, :] *= 0
+
         return self.stft.inverse(spec_result_tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, volume_music=1.0, volume_vocals=0.0):
