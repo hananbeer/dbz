@@ -103,5 +103,4 @@ pyinstaller zen_mode.spec -y
 conda install -c conda-forge pyinstaller
 pyinstaller --exclude-module pkg_resources zen_mode.py -y --onefile
 pyinstaller zen_mode.spec -y
-
 ```

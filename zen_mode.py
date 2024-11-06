@@ -2,6 +2,7 @@
 ### parse args
 ###
 
+import sys
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -49,7 +50,8 @@ if args.list:
         print(f'{dev["name"]} ({dev_type})')
 
     pa.terminate()
-    exit(0)
+    # TODO: fix other exit()s because pyinstaller does not recognize it, but also make sure atexit() works
+    sys.exit(0)
 
 print('initializing...')
 
