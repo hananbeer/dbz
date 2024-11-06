@@ -45,6 +45,9 @@ def get_audio_devices():
 def get_default_device_name():
     return original_default_audio_devices[0]['name'] if original_default_audio_devices else '<n/a>'
 
+def set_default_output_device(device_name):
+    return svv_set_audio_device_default(device_name.split(' ')[0])
+
 def set_virtual_audio_device_as_default():
     print(f'changing default device from {get_default_device_name()} to {vb_cable_device["name"]}')
     svv_set_audio_device_default(vb_cable_device['id'])

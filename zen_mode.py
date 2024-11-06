@@ -84,6 +84,7 @@ class ZenMode:
     output_stream = None
     demixer_thread = None
     playback_thread = None
+    record_thread = None
 
     use_gpu = True
     # possible values between 5 to 11
@@ -286,10 +287,38 @@ class ZenMode:
         self.pa.terminate()
         self.pa = None
 
+def gui_loop(gui_signals):
+    import zen_gui
+    gui = zen_gui.ZenGui()
+
+    def on_zen_mode_change(value):
+        gui_signals['zen_mode'] = value
+
+    def on_volume_change(type, value):
+        gui_signals['volume_' + type] = value
+
+    def on_device_select(name):
+        gui_signals['device'] = name
+
+    gui.on_zen_mode_change = on_zen_mode_change
+    gui.on_volume_change = on_volume_change
+    gui.on_device_select = on_device_select
+
+    gui.root.mainloop()
+
+    # temporary solution for hide/unhide. probably gui should be main thread...
+    exit(0)
+
 def main():
     # this must be called before initializing PyAudio
-    devman.set_virtual_audio_device_as_default()
     atexit.register(devman.restore_default_audio_device)
+
+    gui_signals = {}
+    gui_thread = threading.Thread(target=gui_loop, args=(gui_signals,))
+    gui_thread.start()
+
+    is_zen_mode = False
+    gui_device_name = None
 
     zen = ZenMode()
     zen.use_gpu = not args.cpu
@@ -331,28 +360,49 @@ def main():
         zen.load_model()
         print_time(stime, 'model loaded')
 
-        zen.start()
+        if is_zen_mode:
+            zen.start()
+            devman.set_virtual_audio_device_as_default()
 
-        # example of restarting and plugging new device:
+        # set volume of both devices to 33%
+        devman.set_volume(zen.dev_in['name'], 0.33)
+        devman.set_volume(zen.dev_out['name'], 0.33)
 
-        # time.sleep(3)
-        # # init_pyaudio will force shutdown, so need to restart, optionally call zen.shutdown() explicitly
-        # #zen.shutdown()
-        # # TODO: change system default device here...
-        # zen.init_pyaudio(dev_in_pattern, 'Headphones')
-        # zen.start()
-
-        # 25%
-        devman.set_volume(zen.dev_in['name'], 0.25)
-        devman.set_volume(zen.dev_out['name'], 0.25)
+        gui_device_name = zen.dev_out['name']
 
         # on windows it needs a little bit of time or it crashes?!
         # (windows support is hell, api is so buggy)
-        time.sleep(5)
+        time.sleep(2)
 
         prev_volume = None
-        while zen.record_thread.is_alive():
+        while True: # zen.record_thread.is_alive():
             try:
+                if 'device' in gui_signals:
+                    gui_device_name = gui_signals.pop('device')
+                    # reuse zen_mode signal because it is easier...
+                    gui_signals['zen_mode'] = is_zen_mode
+
+                if 'zen_mode' in gui_signals:
+                    is_zen_mode = gui_signals.pop('zen_mode')
+                    if is_zen_mode:
+                        # in zen mode need to refresh the input device... so init and start()
+                        zen.init_pyaudio(dev_in_pattern, gui_device_name)
+                        zen.start()
+
+                        # again, sleep because of stupid windows
+                        time.sleep(2)
+                        devman.set_virtual_audio_device_as_default()
+                    else:
+                        zen.shutdown()
+                        devman.set_default_output_device(gui_device_name)
+
+                if 'volume_vocals' in gui_signals:
+                    zen.volume_vocals = gui_signals.pop('volume_vocals')
+
+                if 'volume_music' in gui_signals:
+                    zen.volume_music = gui_signals.pop('volume_music') * og_volume_multiplier
+                    # devman.set_volume(zen.dev_in['name'], gui_signals['volume_music'])
+
                 virtual_device_volume = devman.get_system_volume()
                 if virtual_device_volume != prev_volume:
                     prev_volume = virtual_device_volume
