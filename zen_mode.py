@@ -287,36 +287,7 @@ class ZenMode:
         self.pa.terminate()
         self.pa = None
 
-def gui_loop(gui_signals):
-    import zen_gui
-    gui = zen_gui.ZenGui()
-
-    def on_zen_mode_change(value):
-        gui_signals['zen_mode'] = value
-
-    def on_volume_change(type, value):
-        gui_signals['volume_' + type] = value
-
-    def on_device_select(name):
-        gui_signals['device'] = name
-
-    gui.on_zen_mode_change = on_zen_mode_change
-    gui.on_volume_change = on_volume_change
-    gui.on_device_select = on_device_select
-
-    gui.root.mainloop()
-
-    # temporary solution for hide/unhide. probably gui should be main thread...
-    exit(0)
-
-def main():
-    # this must be called before initializing PyAudio
-    atexit.register(devman.restore_default_audio_device)
-
-    gui_signals = {}
-    gui_thread = threading.Thread(target=gui_loop, args=(gui_signals,))
-    gui_thread.start()
-
+def zen_loop(gui_signals):
     is_zen_mode = False
     gui_device_name = None
 
@@ -424,5 +395,36 @@ def main():
         print("\nshutting down...")
         zen.shutdown()
         exit(1)
+
+
+def main():
+    # this must be called before initializing PyAudio
+    atexit.register(devman.restore_default_audio_device)
+
+    gui_signals = {}
+    zen_thread = threading.Thread(target=zen_loop, args=(gui_signals,), daemon=True)
+    zen_thread.start()
+
+    # gui moved to main thread because otherwise it won't exit properly on finish...
+    import zen_gui
+    gui = zen_gui.ZenGui()
+
+    def on_zen_mode_change(value):
+        gui_signals['zen_mode'] = value
+
+    def on_volume_change(type, value):
+        gui_signals['volume_' + type] = value
+
+    def on_device_select(name):
+        gui_signals['device'] = name
+
+    gui.on_zen_mode_change = on_zen_mode_change
+    gui.on_volume_change = on_volume_change
+    gui.on_device_select = on_device_select
+
+    gui.root.mainloop()
+
+    # TODO: this is just a temporary solution. need to hide window instead of exit and have tray icon or something
+    exit(0)
 
 main()
