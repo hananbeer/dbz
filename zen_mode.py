@@ -12,7 +12,7 @@ parser.add_argument('--output-device')
 parser.add_argument('--model-size', type=int, choices=[5, 6, 7, 8, 9, 10, 11], default=5)
 parser.add_argument('--buffer-size', type=int, default=None)
 parser.add_argument('--samples-per-io', type=int, default=1024)
-parser.add_argument('--volume-multiplier', type=int, default=200, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
+parser.add_argument('--volume-multiplier', type=int, default=100, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
 parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
 parser.add_argument('--no-gui', action='store_true')
 args = parser.parse_args()
@@ -26,9 +26,11 @@ import platform
 if platform.system() == 'Windows':
     import pyaudiowpatch as pyaudio
     import device_manager_windows as devman
+    os_volume_muliplier = 2.0
 else:
     import pyaudio
     import device_manager_mac as devman
+    os_volume_muliplier = 1.2
 
 if args.list:
     pa = pyaudio.PyAudio()
@@ -299,9 +301,9 @@ def zen_loop(gui_signals, initial_zen_mode_state):
     zen.buffer_size = 1024 * buffer_base
     zen.frames_per_buffer = args.samples_per_io
 
-    zen.volume_music = args.volume_multiplier / 100.0
+    user_volume_multiplier = (args.volume_multiplier / 100.0)
+    zen.volume_music = user_volume_multiplier * os_volume_muliplier
     zen.volume_vocals = args.volume_vocals / 100.0
-    og_volume_multiplier = zen.volume_music
 
     dev_in_pattern = args.virtual_device
     if not dev_in_pattern:
@@ -372,7 +374,7 @@ def zen_loop(gui_signals, initial_zen_mode_state):
                     zen.volume_vocals = gui_signals.pop('volume_vocals')
 
                 if 'volume_music' in gui_signals:
-                    zen.volume_music = gui_signals.pop('volume_music') * og_volume_multiplier
+                    zen.volume_music = gui_signals.pop('volume_music') * user_volume_multiplier * os_volume_muliplier
                     # devman.set_volume(zen.dev_in['name'], gui_signals['volume_music'])
 
                 virtual_device_volume = devman.get_system_volume()

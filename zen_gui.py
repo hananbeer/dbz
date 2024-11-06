@@ -1,6 +1,10 @@
-import pyaudiowpatch as pyaudio
 import tkinter as tk
 from tkinter import ttk
+import platform
+if platform.system() == 'Windows':
+    import pyaudiowpatch as pyaudio
+else:
+    import pyaudio
 
 def get_devices():
     pa = pyaudio.PyAudio()

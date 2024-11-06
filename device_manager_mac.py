@@ -41,6 +41,15 @@ def set_virtual_audio_device_as_default():
     print(f'changing default device from {get_default_device_name()} to {blackhole_device}')
     sas_set_default_audio_device(blackhole_device)
 
+def set_default_output_device(device_name):
+    return sas_set_default_audio_device(device_name)
+
+def set_virtual_audio_device_as_default():
+    if blackhole_device:
+        sas_set_default_audio_device(blackhole_device)
+    else:
+        print('unknown which audio device to set as default')
+
 def restore_default_audio_device():
     if default_audio_device:
         print(f'restoring default device: {default_audio_device}')
