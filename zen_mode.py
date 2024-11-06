@@ -14,6 +14,7 @@ parser.add_argument('--buffer-size', type=int, default=None)
 parser.add_argument('--samples-per-io', type=int, default=1024)
 parser.add_argument('--volume-multiplier', type=int, default=200, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
 parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
+parser.add_argument('--no-gui', action='store_true')
 args = parser.parse_args()
 
 ###
@@ -287,8 +288,8 @@ class ZenMode:
         self.pa.terminate()
         self.pa = None
 
-def zen_loop(gui_signals):
-    is_zen_mode = False
+def zen_loop(gui_signals, initial_zen_mode_state):
+    is_zen_mode = initial_zen_mode_state
     gui_device_name = None
 
     zen = ZenMode()
@@ -401,8 +402,12 @@ def main():
     # this must be called before initializing PyAudio
     atexit.register(devman.restore_default_audio_device)
 
+    if args.no_gui:
+        zen_loop({}, True)
+        return
+
     gui_signals = {}
-    zen_thread = threading.Thread(target=zen_loop, args=(gui_signals,), daemon=True)
+    zen_thread = threading.Thread(target=zen_loop, args=(gui_signals, False), daemon=True)
     zen_thread.start()
 
     # gui moved to main thread because otherwise it won't exit properly on finish...

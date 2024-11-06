@@ -96,12 +96,12 @@ pip install -r requirements.txt
 
 # on windows:
 pip install pyinstaller==6.11.0
-pyinstaller process_audio.py -y --onefile
-pyinstaller process_audio.spec -y
+pyinstaller zen_mode.py -y --onefile
+pyinstaller zen_mode.spec -y
 
 # on macos:
 conda install -c conda-forge pyinstaller
-pyinstaller --exclude-module pkg_resources process_audio.py -y --onefile
-pyinstaller process_audio.spec -y
+pyinstaller --exclude-module pkg_resources zen_mode.py -y --onefile
+pyinstaller zen_mode.spec -y
 
 ```
