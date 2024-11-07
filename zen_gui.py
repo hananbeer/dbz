@@ -2,10 +2,18 @@ import pyaudiowpatch as pyaudio
 import tkinter as tk
 from tkinter import ttk
 
+def should_hide_device(name):
+    name = name.lower()
+    return \
+        'cable in' in name or \
+        'blackhole' in name or \
+        'primary sound driver' in name or \
+        'microsoft sound mapper' in name
+
 def get_devices():
     pa = pyaudio.PyAudio()
     devices = [pa.get_device_info_by_index(i) for i in range(pa.get_device_count())]
-    outputs = [dev['name'] for dev in devices if dev['maxOutputChannels'] > 0 and 'CABLE In' not in dev['name']]
+    outputs = [dev['name'] for dev in devices if dev['maxOutputChannels'] > 0 and not should_hide_device(dev['name'])]
     pa.terminate()
     return list(set(outputs))
 
