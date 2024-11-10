@@ -109,10 +109,6 @@ def stft_np(x, n_fft, hop, dim_f, window='hann'):
     # can make batch dim by adding (1, ..) and [:, ...]
     return result.reshape((4, result.shape[2], result.shape[3]))[:, :dim_f, :]
 
-def stft_sc(x, n_fft, hop, dim_f, window='hann'):
-    f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window)
-    return zXX[:, :dim_f, :]
-
 def istft_np(x, n_frame, n_hop, dim_f, window='hann'):
     freq_bins, frame_count = x.shape[1:]
 
@@ -154,23 +150,35 @@ def istft_np(x, n_frame, n_hop, dim_f, window='hann'):
     
     return output
 
+one_sided = False
+
+def stft_sc(x, n_fft, hop, dim_f, window='hann'):
+    f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided)
+    complex = zXX[:, :dim_f, :]
+    return np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
 
 def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
     if noverlap is None:
         noverlap = n_hop // 2
 
-    t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=n_hop, window=window)#, input_onesided=True,
+    x = np.array([x[0] + 1j * x[1], x[2] + 1j * x[3]])
+    t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=n_hop, window=window, input_onesided=one_sided)
     
     return zXX
 
-x_og = stft_og(input_buffer, n_fft, hop, dim_f)
+
+chunk = input_buffer[:, :chunk_size]
+print('chunk.shape', chunk.shape)
+
+x_og = stft_og(chunk, n_fft, hop, dim_f)
 print('x_og.shape', x_og.shape)
 
-x_np = stft_np(input_buffer, n_fft, hop, dim_f)
+x_np = stft_np(chunk, n_fft, hop, dim_f)
 print('x_np.shape', x_np.shape)
 # # print(np.abs(x_og - x_np).max())
 
-x_sc = stft_sc(input_buffer, n_fft, hop, dim_f)
+# idk why hop * 2
+x_sc = stft_sc(chunk, n_fft, hop*2, dim_f)
 print('x_sc.shape', x_sc.shape)
 
 # f, t, x_sc = scipy.signal.stft(x, n_fft, hop, window='hann', axis=2)
@@ -191,18 +199,24 @@ print('x_sc.shape', x_sc.shape)
 # stft_mag1 = np.abs(np.abs(x_og2[0])[0] - np.abs(x_np2[0])[0])
 
 # # Plot the spectrogram
-# plt.figure(figsize=(20, 8))
-# plt.subplot(1, 2, 1)
-# plt.imshow(stft_mag0[:100], aspect='auto', origin='lower', cmap='inferno', vmax=100)
-# plt.title('Original Spectrogram')
 
-# plt.subplot(1, 2, 2)
-# plt.imshow(stft_mag1[:100], aspect='auto', origin='lower', cmap='inferno', vmax=100)
-# plt.colorbar(format='%+2.0f dB')
-# plt.title('Subtracted Spectrogram')
-# plt.xlabel('Time')
-# plt.ylabel('Frequency')
-# plt.show()
+plt.figure(figsize=(20, 16))
+width = 1 # 4
+for i in range(width):
+    plt.subplot(2, width, i+1)
+    plt.imshow(x_og[i, :100], aspect='auto', origin='lower', cmap='inferno')#, vmin=-10, vmax=100)
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(f'Original Spectrogram {i}')
+
+    plt.subplot(2, width, width + i+1)
+    plt.imshow(x_sc[i, :100]*1500, aspect='auto', origin='lower', cmap='inferno')#, vmin=-10, vmax=100)
+    plt.colorbar(format='%+2.0f dB')
+    plt.title(f'Custom Impl Spectrogram {i}')
+    plt.xlabel('Time')
+    plt.ylabel('Frequency')
+plt.show()
+
+# exit(0)
 
 # original for testing
 # wave_og = istft_og(x_og, n_fft, hop, dim_f)
@@ -212,25 +226,25 @@ print('x_sc.shape', x_sc.shape)
 # wave_np = istft_np(x_og, n_fft, hop, dim_f)
 
 # sc -> sc works, but og -> sc doesn't
-wave_sc = istft_sc(x_sc, n_fft, hop, dim_f)
+wave_sc = istft_sc(x_sc, n_fft, hop*2, dim_f)
 
-import soundfile
-# soundfile.write('wave_og.wav', wave_og[0], 44100)
-# soundfile.write('wave_np.wav', wave_np[0].real, 44100)
-soundfile.write('wave_sc.wav', wave_sc[0].real, 44100)
-exit(0)
+# import soundfile
+# # soundfile.write('wave_og.wav', wave_og[0], 44100)
+# # soundfile.write('wave_np.wav', wave_np[0].real, 44100)
+# soundfile.write('wave_sc.wav', wave_sc[0].real, 44100)
+# exit(0)
 
 # Plot input_buffer as an audio waveform
 plt.figure(figsize=(20, 8))
 plt.subplot(1, 2, 1)
-plt.plot(input_buffer[0][:4096])
+plt.plot(chunk[0][:4096])
 plt.title('Input Audio Waveform')
 plt.xlabel('Time')
 plt.ylabel('Amplitude')
 
 
 plt.subplot(1, 2, 2)
-plt.plot(wave_np[0][:4096])
+plt.plot(wave_sc[0][:4096])
 plt.title('Reconstructed Audio Waveform')
 plt.xlabel('Time')
 plt.ylabel('Amplitude')

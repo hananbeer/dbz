@@ -11,7 +11,7 @@ import argparse
 import soundfile
 
 ap = argparse.ArgumentParser()
-ap.add_argument('input', type=str)
+ap.add_argument('input', type=str, nargs='?', default='input/Eminem - Rap God.mp3')
 ap.add_argument('output', type=str, nargs='?', default='output.wav')
 ap.add_argument('--nogpu', action='store_true', default=False)
 ap.add_argument('--inverse', action='store_true', default=False)

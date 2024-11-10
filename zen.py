@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import warnings
 import onnxruntime
+import scipy.signal
 
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
@@ -118,6 +119,8 @@ def istft(stft_matrix, n_frame, n_hop, window='hann'):
     output /= np.where(norm > 1e-10, norm, 1)
     
     return output
+
+
 
 class STFT:
     def __init__(self, n_fft, hop_length, dim_f, device='cpu'):
