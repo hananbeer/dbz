@@ -2,6 +2,7 @@
 ### parse args
 ###
 
+import sys
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -26,9 +27,11 @@ import sys
 if sys.platform == 'win32':
     import pyaudiowpatch as pyaudio
     import device_manager_windows as devman
+    os_volume_muliplier = 2.0
 else:
     import pyaudio
     import device_manager_mac as devman
+    os_volume_muliplier = 1.2
 
 if args.list:
     pa = pyaudio.PyAudio()
@@ -301,9 +304,9 @@ def zen_loop(gui_signals, initial_zen_mode_state):
     zen.buffer_size = 1024 * buffer_base
     zen.frames_per_buffer = args.samples_per_io
 
-    zen.volume_music = args.volume_multiplier / 100.0
+    user_volume_multiplier = (args.volume_multiplier / 100.0)
+    zen.volume_music = user_volume_multiplier * os_volume_muliplier
     zen.volume_vocals = args.volume_vocals / 100.0
-    og_volume_multiplier = zen.volume_music
 
     dev_in_pattern = args.virtual_device
     if not dev_in_pattern:
@@ -376,7 +379,7 @@ def zen_loop(gui_signals, initial_zen_mode_state):
                     zen.volume_vocals = gui_signals.pop('volume_vocals')
 
                 if 'volume_music' in gui_signals:
-                    zen.volume_music = gui_signals.pop('volume_music') * og_volume_multiplier
+                    zen.volume_music = gui_signals.pop('volume_music') * user_volume_multiplier * os_volume_muliplier
                     # devman.set_volume(zen.dev_in['name'], gui_signals['volume_music'])
 
                 virtual_device_volume = devman.get_system_volume()

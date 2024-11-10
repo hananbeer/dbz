@@ -1,6 +1,10 @@
-import pyaudiowpatch as pyaudio
 import tkinter as tk
 from tkinter import ttk
+import sys
+if sys.platform == 'win32':
+    import pyaudiowpatch as pyaudio
+else:
+    import pyaudio
 
 def should_hide_device(name):
     name = name.lower()
