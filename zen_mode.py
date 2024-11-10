@@ -241,7 +241,8 @@ class ZenMode:
 
             if input_buffer.shape[1] >= buffer_size:
                 # print('buffer full, processing')
-                self.input_queue.put(input_buffer[:, :buffer_size])
+                # NOTE: copy() seems to be needed on windows otherwise it crashes silently
+                self.input_queue.put(input_buffer[:, :buffer_size].copy())
                 input_buffer = input_buffer[:, buffer_size:]
 
     def start(self):
