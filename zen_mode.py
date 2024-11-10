@@ -171,7 +171,7 @@ class ZenMode:
                 output_buffer = demixer.demix(input_buffer, volume_music=self.volume_music, volume_vocals=self.volume_vocals) #, buffer_size=demixer.chunk_size)
                 print_time(stime, 'demixed audio', end='\r')
 
-                self.output_queue.put(output_buffer[:, -buffer_size:])
+                self.output_queue.put(output_buffer[:, -buffer_size:].copy())
                 back_buffer = back_buffer[:, -chunk_size:]
         except BaseException as e:
             print(f'demixer thread error')
@@ -392,7 +392,8 @@ def zen_loop(gui_signals, initial_zen_mode_state):
                     # print('setting virtual device volume to', int(100*virtual_device_volume)
                     devman.set_volume(zen.dev_out['name'], virtual_device_volume)
             except BaseException as e:
-                # print(f'error getting system volume: {e}')
+                print(f'error getting system volume: {e}')
+                print(traceback.format_exc())
                 pass
 
             time.sleep(1)
