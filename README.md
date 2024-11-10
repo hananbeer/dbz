@@ -90,18 +90,16 @@ conda install -c conda-forge libsndfile
 ```sh
 conda create -n dbz python=3.10.15
 conda activate dbz
-conda create -n dbz python=3.10.15
-conda activate dbz
 pip install -r requirements.txt
 
 # on windows:
 pip install pyinstaller==6.11.0
-pyinstaller zen_mode.py -y --onefile
+# --onefile does not seem to work well on windows
+pyinstaller zen_mode.py -y --icon=img/zen-256.ico --windowed
 pyinstaller zen_mode.spec -y
 
 # on macos:
 conda install -c conda-forge pyinstaller
-pyinstaller --exclude-module pkg_resources zen_mode.py -y --onefile
+pyinstaller zen_mode.py -y --onefile --icon=img/zen-256.ico --windowed --exclude-module pkg_resources
 pyinstaller zen_mode.spec -y
 ```
-
