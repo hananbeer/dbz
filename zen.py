@@ -172,6 +172,24 @@ class STFT:
         return x
 
 
+one_sided = False
+boundary = ['even', 'odd', 'constant', 'zeros', None]
+def stft_sc(x, n_fft, hop, dim_f, window='hann'):
+    window = np.hanning(hop)
+    f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided, boundary=boundary[0], padded=True)
+    complex = zXX[:, :dim_f, :]
+    return np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
+
+def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
+    # if noverlap is None:
+    #     noverlap = n_hop // 2
+
+    x = np.array([x[0] + 1j * x[1], x[2] + 1j * x[3]])
+    t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=n_hop, window=window, input_onesided=one_sided)
+    
+    return zXX
+
+
 class ZenDemixer:
     # NOTE: quantization did not help much
     # this worked better than the convert.py script: (still not as good as the original onnx model)
@@ -212,7 +230,8 @@ class ZenDemixer:
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         # print('0', mix.shape)
-        spec = stft(mix.to(self.device)[0], self.n_fft, self.hop)
+        spec = stft_sc(mix[0], self.n_fft, self.hop, self.dim_f)
+        # spec = stft(mix.to(self.device)[0], self.n_fft, self.hop)
         # spec = self.stft(mix.to(self.device))
         # print('1', spec.shape)
         if adjust != 1.0:
@@ -229,8 +248,8 @@ class ZenDemixer:
         # print('3', tensor.shape)
         if inverse:
             tensor = spec - tensor
-        # return istft(tensor, self.n_fft, self.hop).cpu().detach().numpy()
-        return self.stft.inverse(tensor).cpu().detach().numpy()
+        return istft_sc(tensor, self.n_fft, self.hop, self.dim_f)
+        # return self.stft.inverse(tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, inverse=False):
         """

@@ -151,15 +151,16 @@ def istft_np(x, n_frame, n_hop, dim_f, window='hann'):
     return output
 
 one_sided = False
-
+boundary = ['even', 'odd', 'constant', 'zeros', None]
 def stft_sc(x, n_fft, hop, dim_f, window='hann'):
-    f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided)
+    window = np.hanning(hop)
+    f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided, boundary=boundary[0], padded=True)
     complex = zXX[:, :dim_f, :]
     return np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
 
 def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
-    if noverlap is None:
-        noverlap = n_hop // 2
+    # if noverlap is None:
+    #     noverlap = n_hop // 2
 
     x = np.array([x[0] + 1j * x[1], x[2] + 1j * x[3]])
     t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=n_hop, window=window, input_onesided=one_sided)
@@ -170,7 +171,7 @@ def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
 chunk = input_buffer[:, :chunk_size]
 print('chunk.shape', chunk.shape)
 
-x_og = stft_og(chunk, n_fft, hop, dim_f)
+x_og = stft_og(chunk, n_fft, hop*2, dim_f)
 print('x_og.shape', x_og.shape)
 
 x_np = stft_np(chunk, n_fft, hop, dim_f)
@@ -178,7 +179,8 @@ print('x_np.shape', x_np.shape)
 # # print(np.abs(x_og - x_np).max())
 
 # idk why hop * 2
-x_sc = stft_sc(chunk, n_fft, hop*2, dim_f)
+hop_sc = hop * 2
+x_sc = stft_sc(chunk, n_fft, hop_sc, dim_f)
 print('x_sc.shape', x_sc.shape)
 
 # f, t, x_sc = scipy.signal.stft(x, n_fft, hop, window='hann', axis=2)
@@ -225,8 +227,10 @@ plt.show()
 # probably due to broken normalization, could be broken padding?
 # wave_np = istft_np(x_og, n_fft, hop, dim_f)
 
+exit(0)
+
 # sc -> sc works, but og -> sc doesn't
-wave_sc = istft_sc(x_sc, n_fft, hop*2, dim_f)
+wave_sc = istft_sc(x_sc, n_fft, hop_sc, dim_f)
 
 # import soundfile
 # # soundfile.write('wave_og.wav', wave_og[0], 44100)
