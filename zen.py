@@ -172,20 +172,25 @@ class STFT:
         return x
 
 
-one_sided = False
+one_sided = True
 boundary = ['even', 'odd', 'constant', 'zeros', None]
 def stft_sc(x, n_fft, hop, dim_f, window='hann'):
-    window = np.hanning(hop)
+    # print('x.shape', x.shape)
+    hop *= 2
+    # window = np.hanning(hop)
     f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided, boundary=boundary[0], padded=True)
-    complex = zXX[:, :dim_f, :]
-    return np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
+    complex = zXX[:, :dim_f, :256]
+    res = np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag]).reshape((1, 4, complex.shape[1], complex.shape[2]))
+    # print('res.shape', res.shape)
+    return res
 
-def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
+def istft_sc(x, n_fft, hop, dim_f, window='hann', noverlap=None):
     # if noverlap is None:
     #     noverlap = n_hop // 2
-
+    hop *= 2
+    x = x[0]
     x = np.array([x[0] + 1j * x[1], x[2] + 1j * x[3]])
-    t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=n_hop, window=window, input_onesided=one_sided)
+    t, zXX = scipy.signal.istft(x, nfft=n_fft, nperseg=hop, window=window, input_onesided=one_sided)
     
     return zXX
 
@@ -230,7 +235,7 @@ class ZenDemixer:
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         # print('0', mix.shape)
-        spec = stft_sc(mix[0], self.n_fft, self.hop, self.dim_f)
+        spec = stft_sc(mix[0].cpu().numpy(), self.n_fft, self.hop, self.dim_f)
         # spec = stft(mix.to(self.device)[0], self.n_fft, self.hop)
         # spec = self.stft(mix.to(self.device))
         # print('1', spec.shape)
@@ -248,7 +253,7 @@ class ZenDemixer:
         # print('3', tensor.shape)
         if inverse:
             tensor = spec - tensor
-        return istft_sc(tensor, self.n_fft, self.hop, self.dim_f)
+        return istft_sc(tensor.cpu().numpy(), self.n_fft, self.hop, self.dim_f)
         # return self.stft.inverse(tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, inverse=False):

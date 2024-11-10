@@ -153,7 +153,7 @@ def istft_np(x, n_frame, n_hop, dim_f, window='hann'):
 one_sided = False
 boundary = ['even', 'odd', 'constant', 'zeros', None]
 def stft_sc(x, n_fft, hop, dim_f, window='hann'):
-    window = np.hanning(hop)
+    # window = np.hanning(hop)
     f, t, zXX = scipy.signal.stft(x, nfft=n_fft, nperseg=hop, window=window, return_onesided=one_sided, boundary=boundary[0], padded=True)
     complex = zXX[:, :dim_f, :]
     return np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
@@ -171,7 +171,7 @@ def istft_sc(x, n_fft, n_hop, dim_f, window='hann', noverlap=None):
 chunk = input_buffer[:, :chunk_size]
 print('chunk.shape', chunk.shape)
 
-x_og = stft_og(chunk, n_fft, hop*2, dim_f)
+x_og = stft_og(chunk, n_fft, hop, dim_f)
 print('x_og.shape', x_og.shape)
 
 x_np = stft_np(chunk, n_fft, hop, dim_f)
@@ -180,7 +180,7 @@ print('x_np.shape', x_np.shape)
 
 # idk why hop * 2
 hop_sc = hop * 2
-x_sc = stft_sc(chunk, n_fft, hop_sc, dim_f)
+x_sc = stft_sc(chunk, n_fft, hop, dim_f)
 print('x_sc.shape', x_sc.shape)
 
 # f, t, x_sc = scipy.signal.stft(x, n_fft, hop, window='hann', axis=2)
