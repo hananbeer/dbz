@@ -28,11 +28,11 @@ import sys
 if sys.platform == 'win32':
     import pyaudiowpatch as pyaudio
     import device_manager_windows as devman
-    os_volume_muliplier = 2.0
+    os_volume_muliplier = 1.0
 else:
     import pyaudio
     import device_manager_mac as devman
-    os_volume_muliplier = 1.2
+    os_volume_muliplier = 1.0
 
 if args.list:
     pa = pyaudio.PyAudio()
