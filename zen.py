@@ -3,6 +3,7 @@ import numpy as np
 import warnings
 import onnxruntime
 import scipy.signal
+import librosa
 
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
@@ -195,6 +196,21 @@ def istft_sc(x, n_fft, hop, dim_f, window='hann', noverlap=None):
     return zXX
 
 
+### LIBROSA IMPL ###
+def stft_lr(x, n_fft, hop, dim_f, window='hann'):
+    zXX = librosa.stft(x, n_fft=n_fft, hop_length=hop, window=window, center=True)
+    complex = zXX[:, :dim_f, :]
+    quad_dim = np.array([complex[0].real, complex[0].imag, complex[1].real, complex[1].imag])
+    return np.array([quad_dim])
+
+def istft_lr(x, n_fft, n_hop, dim_f, window='hann'):
+    res = librosa.istft(x, n_fft=n_fft, hop_length=n_hop, window=window, dtype=np.float32)
+    # res2 = res[:, ::2, :]
+    res2 = res
+    # print(res2.shape)
+    return res2
+
+
 class ZenDemixer:
     # NOTE: quantization did not help much
     # this worked better than the convert.py script: (still not as good as the original onnx model)
@@ -235,7 +251,7 @@ class ZenDemixer:
         (batch sizes larger than 1 are not supported, model was trained on channels=2 and chunk_size=(1024*1023))
         """
         # print('0', mix.shape)
-        spec = stft_sc(mix[0].cpu().numpy(), self.n_fft, self.hop, self.dim_f)
+        spec = stft_lr(mix[0].cpu().numpy(), self.n_fft, self.hop, self.dim_f)
         # spec = stft(mix.to(self.device)[0], self.n_fft, self.hop)
         # spec = self.stft(mix.to(self.device))
         # print('1', spec.shape)
@@ -253,7 +269,7 @@ class ZenDemixer:
         # print('3', tensor.shape)
         if inverse:
             tensor = spec - tensor
-        return istft_sc(tensor.cpu().numpy(), self.n_fft, self.hop, self.dim_f)
+        return istft_lr(tensor.cpu().numpy(), self.n_fft, self.hop, self.dim_f)
         # return self.stft.inverse(tensor).cpu().detach().numpy()
 
     def demix(self, mix, buffer_size=None, progress_cb=None, inverse=False):
