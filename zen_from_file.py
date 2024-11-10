@@ -15,6 +15,10 @@ ap.add_argument('input', type=str)
 ap.add_argument('output', type=str, nargs='?', default='output.wav')
 ap.add_argument('--gpu', type=bool, default=True)
 
+# TODO: make args
+volume_music = 1.0
+volume_vocals = 0.0
+
 args = ap.parse_args()
 
 input_path = os.path.abspath(args.input)
@@ -47,7 +51,7 @@ show_time()
 # run inference
 print('demixing........', end='\r')
 stime = time.perf_counter()
-source = separator.demix(mix, progress_cb=lambda p: print('demixing........ %.2f%%' % (100.*p), end='\r'))
+source = separator.demix(mix, progress_cb=lambda p: print('demixing........ %.2f%%' % (100.*p), end='\r'), volume_music=volume_music, volume_vocals=volume_vocals)
 print('demixing........', end='     ')
 show_time()
 

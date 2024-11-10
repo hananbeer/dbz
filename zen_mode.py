@@ -12,7 +12,7 @@ parser.add_argument('--output-device')
 parser.add_argument('--model-size', type=int, choices=[5, 6, 7, 8, 9, 10, 11], default=5)
 parser.add_argument('--buffer-size', type=int, default=None)
 parser.add_argument('--samples-per-io', type=int, default=1024)
-parser.add_argument('--volume-multiplier', type=int, default=200, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
+parser.add_argument('--volume-multiplier', type=int, default=100, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
 parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
 parser.add_argument('--no-gui', action='store_true')
 args = parser.parse_args()
@@ -21,9 +21,9 @@ args = parser.parse_args()
 ### initiate startup, install virtual devices if necessary
 ###
 
-import platform
+import sys
 
-if platform.system() == 'Windows':
+if sys.platform == 'win32':
     import pyaudiowpatch as pyaudio
     import device_manager_windows as devman
 else:
@@ -47,9 +47,9 @@ if args.list:
         print(f'{dev["name"]} ({dev_type})')
 
     pa.terminate()
-    exit(0)
+    sys.exit(0)
 
-print('initializing...')
+print('devman initializing...')
 
 # devman.startup() will install virtual devices if necessary
 # running before potentially heavy imports for quick error reporting
@@ -57,7 +57,9 @@ try:
     assert devman.startup(), 'ensure virtual devices are installed properly'
 except Exception as e:
     print(f'startup failed: {e}')
-    exit(1)
+    sys.exit(1)
+
+print('devman initialized')
 
 ###
 ### start app
@@ -66,7 +68,7 @@ except Exception as e:
 import re
 import time
 import queue
-import atexit
+# import atexit
 import threading
 import traceback
 import numpy as np
@@ -312,10 +314,12 @@ def zen_loop(gui_signals, initial_zen_mode_state):
         dev_out_pattern = 'Speakers|Headphones'
 
     try:
+        print('pyaudio initializing...')
         zen.init_pyaudio(dev_in_pattern, dev_out_pattern)
 
         assert zen.dev_in, f'input device not found: {dev_in_pattern}'
         assert zen.dev_out, f'output device not found: {dev_out_pattern}'
+        print('pyaudio initialized')
 
         print('-' * 80)
         print(f'input device: {zen.dev_in["index"]} {zen.dev_in["name"]} ({zen.dev_in["maxInputChannels"]} channels, samplerate {zen.dev_in["defaultSampleRate"]})')
@@ -347,7 +351,7 @@ def zen_loop(gui_signals, initial_zen_mode_state):
         time.sleep(2)
 
         prev_volume = None
-        while True: # zen.record_thread.is_alive():
+        while not gui_signals.get('exit', False): # zen.record_thread.is_alive():
             try:
                 if 'device' in gui_signals:
                     gui_device_name = gui_signals.pop('device')
@@ -395,12 +399,13 @@ def zen_loop(gui_signals, initial_zen_mode_state):
     finally:
         print("\nshutting down...")
         zen.shutdown()
-        exit(1)
+        devman.restore_default_audio_device()
+        sys.exit(1)
 
 
 def main():
     # this must be called before initializing PyAudio
-    atexit.register(devman.restore_default_audio_device)
+    # atexit.register(devman.restore_default_audio_device)
 
     if args.no_gui:
         zen_loop({}, True)
@@ -409,6 +414,9 @@ def main():
     gui_signals = {}
     zen_thread = threading.Thread(target=zen_loop, args=(gui_signals, False), daemon=True)
     zen_thread.start()
+
+    # wait for zen_loop to initialize. otherwise crashes on windows
+    time.sleep(3)
 
     # gui moved to main thread because otherwise it won't exit properly on finish...
     import zen_gui
@@ -428,8 +436,7 @@ def main():
     gui.on_device_select = on_device_select
 
     gui.root.mainloop()
-
-    # TODO: this is just a temporary solution. need to hide window instead of exit and have tray icon or something
-    exit(0)
+    gui_signals['exit'] = True
+    time.sleep(5)
 
 main()
