@@ -7,6 +7,8 @@ devices = None
 vb_cable_device = None
 original_default_audio_devices = None
 
+CoInitialize()
+
 def install_vb_cable():
     # as shell so it will request elevated permissions if needed
     return subprocess.run(r'.\bin\VBCABLE_Setup_x64.exe -i -h', shell=True)
@@ -60,7 +62,6 @@ def restore_default_audio_device():
         print('unknown which audio device to restore')
 
 def get_system_volume():
-    CoInitialize()
     devices = AudioUtilities.GetSpeakers()
     interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
     volume = cast(interface, POINTER(IAudioEndpointVolume))
