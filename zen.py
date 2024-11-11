@@ -3,7 +3,8 @@ import numpy as np
 import warnings
 import onnxruntime
 import scipy.signal
-import librosa
+# import librosa
+import librosa_stft as librosa
 
 warnings.filterwarnings("ignore", "(The given NumPy array is not writable|PySoundFile failed|To copy construct from a tensor)")
 
@@ -205,8 +206,8 @@ def stft_lr(x, n_fft, hop, dim_f, window='hann'):
 
 def istft_lr(x, n_fft, n_hop, dim_f, window='hann'):
     res = librosa.istft(x, n_fft=n_fft, hop_length=n_hop, window=window, dtype=np.float32)
-    # res2 = res[:, ::2, :]
-    res2 = res
+    res2 = res[:, ::2, :]
+    # res2 = res
     # print(res2.shape)
     return res2
 
