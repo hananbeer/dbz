@@ -3,7 +3,6 @@
 ###
 
 import sys
-import sys
 import argparse
 
 parser = argparse.ArgumentParser()
@@ -23,8 +22,12 @@ args = parser.parse_args()
 ### initiate startup, install virtual devices if necessary
 ###
 
-import sys
+# frozen is True in pyinstaller binary executable
+is_pyinstaller_exe = getattr(sys, 'frozen', False)
+if is_pyinstaller_exe:
+    sys.stdout = open('log.txt', 'w')
 
+# TODO: tweak os_volume_muliplier appropriately
 if sys.platform == 'win32':
     import pyaudiowpatch as pyaudio
     import device_manager_windows as devman
@@ -83,6 +86,15 @@ MODEL_CHANNELS = 2
 
 def print_time(stime, msg, end='\n'):
     print(f'\r{msg}: %.2fs' % (time.perf_counter() - stime), end=end)
+
+if is_pyinstaller_exe and sys.platform == 'win32':
+    # on windows pyinstaller binary crashes, may or may not be related to this numpy copy
+    # doesn't hurt to have it
+    def maybe_copy(arr):
+        return arr.copy()
+else:
+    def maybe_copy(arr):
+        return arr
 
 class ZenMode:
     pa = None
@@ -171,7 +183,7 @@ class ZenMode:
                 output_buffer = demixer.demix(input_buffer, volume_music=self.volume_music, volume_vocals=self.volume_vocals) #, buffer_size=demixer.chunk_size)
                 print_time(stime, 'demixed audio', end='\r')
 
-                self.output_queue.put(output_buffer[:, -buffer_size:].copy())
+                self.output_queue.put(maybe_copy(output_buffer[:, -buffer_size:]))
                 back_buffer = back_buffer[:, -chunk_size:]
         except BaseException as e:
             print(f'demixer thread error')
@@ -242,7 +254,7 @@ class ZenMode:
             if input_buffer.shape[1] >= buffer_size:
                 # print('buffer full, processing')
                 # NOTE: copy() seems to be needed on windows otherwise it crashes silently
-                self.input_queue.put(input_buffer[:, :buffer_size].copy())
+                self.input_queue.put(maybe_copy(input_buffer[:, :buffer_size]))
                 input_buffer = input_buffer[:, buffer_size:]
 
     def start(self):
