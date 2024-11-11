@@ -191,16 +191,35 @@ class ZenMode:
 
     def playback_loop(self):
         try:
+            self.open_output_stream()
+
             while self.output_stream:
+                if not self.demixer_thread or not self.demixer_thread.is_alive():
+                    print('demixer thread stopped unexpectedly, halting')
+                    return
+
+                if not self.record_thread or not self.record_thread.is_alive():
+                    print('record thread stopped unexpectedly, halting')
+                    return
+
                 # if output_queue.empty():
                 #     # TODO: output some default soundwave
                 #     continue
 
-                output_data = self.output_queue.get()
-                output_data_compact = output_data.transpose().flatten() # output_data.reshape((channels, -1)).transpose().flatten()
+                try:
+                    output_data = self.output_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+
+                # TODO: if only have one channel call .reshape((channels, -1)) before .transpose().flatten()
+                output_data_compact = output_data.transpose().flatten()
+
+                # adjust volume
                 if self.volume_music != 1.0:
-                    # adjust volume
                     output_data_compact *= self.volume_music
+
+                if not self.output_stream:
+                    break
 
                 # writing to output_stream is blocking, so it takes len(output_data_compact) / samplerate seconds to play
                 # stime = time.perf_counter()
@@ -215,52 +234,53 @@ class ZenMode:
         input_buffer = np.zeros((MODEL_CHANNELS, 0), dtype=np.float32)
         buffer_size = self.buffer_size
 
-        while self.input_stream:
-            if not self.demixer_thread.is_alive():
-                print('demixer thread stopped unexpectedly, halting')
-                self.shutdown()
-                return
+        try:
+            self.open_input_stream()
 
-            if not self.playback_thread.is_alive():
-                print('playback thread stopped unexpectedly, halting')
-                self.shutdown()
-                return
+            while self.input_stream:
+                if not self.demixer_thread or not self.demixer_thread.is_alive():
+                    print('demixer thread stopped unexpectedly, halting')
+                    return
 
-            # len(input_data) == (frames_per_buffer * channels * sizeof(float))
-            input_data = self.input_stream.read(self.frames_per_buffer)
+                if not self.playback_thread or not self.playback_thread.is_alive():
+                    print('playback thread stopped unexpectedly, halting')
+                    return
 
-            # len(audio_data) == (frames_per_buffer * channels)
-            audio_data_compact = np.frombuffer(input_data, dtype=np.float32)
+                # len(input_data) == (frames_per_buffer * channels * sizeof(float))
+                input_data = self.input_stream.read(self.frames_per_buffer)
 
-            # example how to resample, probably not needed
-            # demix_samplerate = 44100
-            # audio_data_compact = resample(audio_data_compact, int(len(audio_data_compact) * demix_samplerate / samplerate))
+                # len(audio_data) == (frames_per_buffer * channels)
+                audio_data_compact = np.frombuffer(input_data, dtype=np.float32)
 
-            # audio_data_compact has interleaved samples for each channel, convert to separate channels
-            audio_data = audio_data_compact.reshape((-1, MODEL_CHANNELS)).transpose()
+                # example how to resample, probably not needed
+                # demix_samplerate = 44100
+                # audio_data_compact = resample(audio_data_compact, int(len(audio_data_compact) * demix_samplerate / samplerate))
 
-            if not audio_data.any():
-                if not prev_empty:
-                    print('empty buffer', end='\r')
-                    prev_empty = True
-                #continue
-            else:
-                if prev_empty:
-                    print('got audio data', end='\r')
-                    prev_empty = False
+                # audio_data_compact has interleaved samples for each channel, convert to separate channels
+                audio_data = audio_data_compact.reshape((-1, MODEL_CHANNELS)).transpose()
 
-            input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
+                if not is_pyinstaller_exe:
+                    # for debug only
+                    if not audio_data.any():
+                        if not prev_empty:
+                            print('audio silent', end='\r')
+                            prev_empty = True
+                    else:
+                        if prev_empty:
+                            print('got audio data', end='\r')
+                            prev_empty = False
 
-            if input_buffer.shape[1] >= buffer_size:
-                # print('buffer full, processing')
-                # NOTE: copy() seems to be needed on windows otherwise it crashes silently
-                self.input_queue.put(maybe_copy(input_buffer[:, :buffer_size]))
-                input_buffer = input_buffer[:, buffer_size:]
+                input_buffer = np.concatenate((input_buffer, audio_data), axis=1)
+                if input_buffer.shape[1] >= buffer_size:
+                    # print('buffer full, processing')
+                    # NOTE: copy() seems to be needed on windows otherwise it crashes silently
+                    self.input_queue.put(maybe_copy(input_buffer[:, :buffer_size]))
+                    input_buffer = input_buffer[:, buffer_size:]
+        except Exception as e:
+            print(f'record thread error')
+            print(traceback.format_exc())
 
     def start(self):
-        self.open_input_stream()
-        self.open_output_stream()
-
         if not self.demixer_thread or not self.demixer_thread.is_alive():
             self.demixer_thread = threading.Thread(target=self.demixer_loop, daemon=True)
             self.demixer_thread.start()
@@ -296,14 +316,32 @@ class ZenMode:
         if not self.pa:
             return
 
+        _input_stream = self.input_stream
+        _output_stream = self.output_stream
+
         self.input_stream = None
         self.output_stream = None
         if self.playback_thread and self.playback_thread.is_alive():
             self.playback_thread.join()
+            self.playback_thread = None
 
         if self.record_thread and self.record_thread.is_alive():
             self.record_thread.join()
+            self.record_thread = None
 
+        # if _input_stream:
+        #     try:
+        #         _input_stream.stop_stream()
+        #     except BaseException as e:
+        #         pass
+
+        # if _output_stream:
+        #     try:
+        #         _output_stream.stop_stream()
+        #     except BaseException as e:
+        #         pass
+
+        # TODO: will this close the input & output streams?
         self.pa.terminate()
         self.pa = None
 
@@ -429,8 +467,9 @@ def main():
         zen_loop({}, True)
         return
 
+    initial_zen_mode_state = True
     gui_signals = {}
-    zen_thread = threading.Thread(target=zen_loop, args=(gui_signals, False), daemon=True)
+    zen_thread = threading.Thread(target=zen_loop, args=(gui_signals, initial_zen_mode_state), daemon=True)
     zen_thread.start()
 
     # wait for zen_loop to initialize. otherwise crashes on windows
@@ -438,7 +477,7 @@ def main():
 
     # gui moved to main thread because otherwise it won't exit properly on finish...
     import zen_gui
-    gui = zen_gui.ZenGui()
+    gui = zen_gui.ZenGui(initial_zen_mode_state)
 
     def on_zen_mode_change(value):
         gui_signals['zen_mode'] = value

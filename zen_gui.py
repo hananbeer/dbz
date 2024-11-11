@@ -22,7 +22,7 @@ def get_devices():
     return list(set(outputs))
 
 class ZenGui:
-    def __init__(self):
+    def __init__(self, initial_zen_mode_state):
         self.root = tk.Tk()
         self.root.resizable(False, False)
         # root.overrideredirect(True)
@@ -38,7 +38,8 @@ class ZenGui:
         self.zen_mode_checkbox = ttk.Checkbutton(self.root, text="Zen Mode")
         self.zen_mode_checkbox.pack(pady=1)
         self.zen_mode_checkbox.invoke()
-        self.zen_mode_checkbox.invoke()
+        if not initial_zen_mode_state:
+            self.zen_mode_checkbox.invoke()
         self.zen_mode_checkbox.bind("<Button-1>", self.evt_checkbox)
 
         # Listbox for device selection

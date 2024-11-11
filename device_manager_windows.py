@@ -1,6 +1,6 @@
 import subprocess
 from ctypes import cast, POINTER
-from comtypes import CLSCTX_ALL
+from comtypes import CLSCTX_ALL, CoInitialize
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 devices = None
@@ -60,6 +60,7 @@ def restore_default_audio_device():
         print('unknown which audio device to restore')
 
 def get_system_volume():
+    CoInitialize()
     devices = AudioUtilities.GetSpeakers()
     interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
     volume = cast(interface, POINTER(IAudioEndpointVolume))
