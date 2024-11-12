@@ -2,10 +2,7 @@ import onnx
 import torch
 import numpy as np
 import warnings
-try:
-    import torch_directml
-except ImportError:
-    torch_directml = None
+import torch_directml
 
 from onnx2pytorch import ConvertModel
 

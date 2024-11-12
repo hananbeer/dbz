@@ -8,14 +8,15 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--cpu', action='store_true')
 parser.add_argument('--list', nargs='?', choices=['input', 'output', 'both'], const='both', help='list audio devices and exit')
-parser.add_argument('--virtual-device')
-parser.add_argument('--output-device')
+parser.add_argument('--virtual-device', help='virtual input device name pattern')
+parser.add_argument('--output-device', help='output device name pattern')
 parser.add_argument('--model-size', type=int, choices=[5, 6, 7, 8, 9, 10, 11], default=5)
 parser.add_argument('--buffer-size', type=int, default=None)
 parser.add_argument('--samples-per-io', type=int, default=1024)
 parser.add_argument('--volume-multiplier', type=int, default=100, help='audio suffers amplitude loss, once when physical device has <100% volume and again when the virtual playback device has <100% volume. this helps offset it')
 parser.add_argument('--volume-vocals', type=int, default=0, help='vocals volume level')
-parser.add_argument('--no-gui', action='store_true')
+parser.add_argument('--no-gui', action='store_true', help='run without gui window')
+parser.add_argument('--console', action='store_true', help='print logs to console instead of log file')
 args = parser.parse_args()
 
 ###
@@ -24,7 +25,7 @@ args = parser.parse_args()
 
 # frozen is True in pyinstaller binary executable
 is_pyinstaller_exe = getattr(sys, 'frozen', False)
-if is_pyinstaller_exe:
+if is_pyinstaller_exe and not args.console:
     sys.stdout = open('log.txt', 'w')
 
 # TODO: tweak os_volume_muliplier appropriately

@@ -12,6 +12,68 @@ The processed audio is sent to the physical output device directly.
 
 Note this makes it possible to change specific applications audio output in the system mixer settings - using the virtual device for AI processing or the physical device to bypass the program.
 
+# Setup
+
+create environment based on target execution provider: cuda, directml, mps
+
+on Windows use either one of:
+```sh
+# cuda:
+set provider=cuda
+
+# directml:
+set provider=directml
+```
+
+and then:
+
+```sh
+conda create -y -n dbz-%provider% python=3.10.15
+conda activate dbz-%provider%
+pip install -r requirements-%provider%.txt
+```
+
+# Building
+
+### Windows
+
+```sh
+# ensure pyinstaller is installed; on windows it's available from pip
+pip install pyinstaller==6.11.0
+
+# build executable binary:
+pyinstaller zen_mode.py -y --name=zen_mode-%provider% --icon=img/zen-256.ico --windowed --onefile
+pyinstaller zen_mode.spec -y
+```
+
+NOTE: for some reason the directml version does not include the import, even when using `--hidden-import`.
+
+it is possible to fix manually if not using --onefile and simply copying the package directory from `Lib/site-packages/torch_directml` into `dist/_internal`
+
+### Mac
+
+```sh
+# on macos `pyinstaller` needs to be installed from `conda-forge`:
+conda install -c conda-forge pyinstaller==6.11.0
+
+# build executable binary:
+pyinstaller zen_mode.py -y --exclude-module pkg_resources --icon=img/zen-256.ico --windowed --onefile
+pyinstaller zen_mode.spec -y
+```
+
+### Post-build
+
+TODO: need to create a bundling script.
+meanwhile just do it manually by copying these directories to the same as the binary executable:
+
+```sh
+cp -r img dist/.
+cp -r models dist/.
+
+# on windows also copy:
+cp -r bin dist/.
+```
+
 ## TODO:
 
 - copy volume levels when changed
@@ -42,10 +104,14 @@ to record audio output, need to:
 # (sudo?)
 brew install blackhole-2ch
 brew install portaudio
-brew link portaudio (may not be necessary?)
-pip install pyaudio
 ```
 
+if having issues with pyaudio / portaudio (especially when using `zen_from_file.py`) may need to rebuild from source and/or link:
+```sh
+brew link portaudio
+pip install pyaudio
+# (best practice is to pin to the same version in requirements.txt)
+```
 
 notice I needed to go to `Settings -> Privacy & Security -> Microphone` and add "cursor" (yes the IDE wtf?) to the allowed apps list.
 (need to figure out how to allow python/my specific program)
@@ -83,23 +149,4 @@ osascript -e "set volume input volume 100 --100%"
 for zen_from_file.py to run in mac libsndfile needs to be installed like so:
 ```sh
 conda install -c conda-forge libsndfile
-```
-
-# Building
-
-```sh
-conda create -n dbz python=3.10.15
-conda activate dbz
-pip install -r requirements.txt
-
-# on windows:
-pip install pyinstaller==6.11.0
-# --onefile does not seem to work well on windows
-pyinstaller zen_mode.py -y --icon=img/zen-256.ico --windowed
-pyinstaller zen_mode.spec -y
-
-# on macos:
-conda install -c conda-forge pyinstaller
-pyinstaller zen_mode.py -y --onefile --icon=img/zen-256.ico --windowed --exclude-module pkg_resources
-pyinstaller zen_mode.spec -y
 ```
