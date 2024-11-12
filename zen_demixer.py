@@ -79,8 +79,27 @@ class ZenDemixer:
         self._load_model()
 
     def _load_model(self):
-        self.model = ConvertModel(onnx.load(self.model_path))
-        self.model.to(self.device).eval()
+        # self.model = ConvertModel(onnx.load(self.model_path))
+        # self.model.to(self.device).eval()
+
+        import onnxruntime as ort
+        inference = ort.InferenceSession(self.model_path, providers=['CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider'])
+        def _run_internal(spec):
+            # TODO: move to gpu
+            spec_cpu = spec.cpu().numpy()
+
+            provider = inference.get_providers()[0]
+            # TODO: whoops this is the wrong check.. ort InferenceSession always expects 256 in the last dim, unlike ConvertModel to pytorch :\
+            if provider == 'DmlExecutionProvider':
+                spec_cpu = np.pad(spec_cpu, ((0, 0), (0, 0), (0, 256 - spec_cpu.shape[-1])), 'constant')
+
+            result = inference.run(None, {'input': spec_cpu})[0]
+            if provider == 'DmlExecutionProvider':
+                result = result[..., :spec.shape[-1]]
+
+            return result
+
+        self.model = _run_internal
 
     def run_model(self, mix, volume_music=1.0, volume_vocals=0.0):
         """
