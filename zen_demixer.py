@@ -2,6 +2,10 @@ import onnx
 import torch
 import numpy as np
 import warnings
+try:
+    import torch_directml
+except ImportError:
+    torch_directml = None
 
 from onnx2pytorch import ConvertModel
 
@@ -70,8 +74,14 @@ class ZenDemixer:
             self.device = 'mps'
         elif use_gpu and torch.cuda.is_available():
             self.device = 'cuda'
+        elif use_gpu and torch_directml and torch_directml.is_available():
+            # just helper idx to test integrated gpu, eg. set idx = 1 (for me idx = 0 is my nvidia gpu)
+            idx = torch_directml.default_device()
+            self.device = torch_directml.device(idx)  # 'directml'
         else:
             self.device = 'cpu'
+
+        print('using device:', self.device)
 
         self.stft = STFT(self.n_fft, self.hop, self.dim_f, self.device)
         self.segment_size = segment_size
@@ -79,27 +89,8 @@ class ZenDemixer:
         self._load_model()
 
     def _load_model(self):
-        # self.model = ConvertModel(onnx.load(self.model_path))
-        # self.model.to(self.device).eval()
-
-        import onnxruntime as ort
-        inference = ort.InferenceSession(self.model_path, providers=['CUDAExecutionProvider', 'DmlExecutionProvider', 'CPUExecutionProvider'])
-        def _run_internal(spec):
-            # TODO: move to gpu
-            spec_cpu = spec.cpu().numpy()
-
-            provider = inference.get_providers()[0]
-            # TODO: whoops this is the wrong check.. ort InferenceSession always expects 256 in the last dim, unlike ConvertModel to pytorch :\
-            if provider == 'DmlExecutionProvider':
-                spec_cpu = np.pad(spec_cpu, ((0, 0), (0, 0), (0, 256 - spec_cpu.shape[-1])), 'constant')
-
-            result = inference.run(None, {'input': spec_cpu})[0]
-            if provider == 'DmlExecutionProvider':
-                result = result[..., :spec.shape[-1]]
-
-            return result
-
-        self.model = _run_internal
+        self.model = ConvertModel(onnx.load(self.model_path))
+        self.model.to(self.device).eval()
 
     def run_model(self, mix, volume_music=1.0, volume_vocals=0.0):
         """
