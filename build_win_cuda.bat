@@ -9,3 +9,5 @@ if "%CONDA_DEFAULT_ENV:~-8%" == "dbz-cuda" (
     echo Then to activate it:
     echo     conda activate dbz-cuda
 )
+
+@REM TODO: zip %TARGET_DIR%

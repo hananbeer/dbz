@@ -10,3 +10,5 @@ if "%CONDA_DEFAULT_ENV:~-12%" == "dbz-directml" (
     echo Then to activate it:
     echo     conda activate dbz-directml
 )
+
+@REM TODO: zip %TARGET_DIR%
