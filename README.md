@@ -46,9 +46,11 @@ pyinstaller zen_mode.py -y --name=zen_mode-%provider% --icon=img/zen-256.ico --w
 pyinstaller zen_mode.spec -y
 ```
 
-NOTE: for some reason the directml version does not include the import, even when using `--hidden-import`.
+NOTE: for some reason the directml version does not include the import, even when using `--hidden-import` and/or `--collect-submodules`.
 
 it is possible to fix manually if not using --onefile and simply copying the package directory from `Lib/site-packages/torch_directml` into `dist/_internal`
+
+in any case, the `bin`, `img` and `models` directories need to be copied to the same directory as the binary executable, so might as well also copy `torch_directml`.
 
 ### Mac
 
@@ -76,28 +78,54 @@ cp -r bin dist/.
 
 ## TODO:
 
-- copy volume levels when changed
+- ~~copy volume levels when changed~~
 - monitor audio devices plugged/unplugged
-- reduce build size (avoiding torch is probably the largest size reduction, but onnx could result in slower runtime)
+- ~~reduce build size~~ (cuda -> directml. fast enough and 10x smaller when zipped)
 - add a tray icon
-- add splash
-- ui
+- ~~add splash~~ (pyinstaller splash is buggy, skipped)
+- ~~ui~~
 - keyboard shortcuts
 
-# Windows
+# Internals
+
+Some functionalities such as volume control are very poorly supported, no official API.
+
+A lot can be done with `pycaw` on Windows and `osascript` on MacOS, but also rely on external utilities such as `SoundVolumeView.exe` on Windows and `SwitchAudioSource` on MacOS.
+
+## Windows
+
+### Virtual Audio Drivers
+
+One-click install by `bin/VBCABLE_Setup_x64.exe`.
+(only Windows 10 driver is included which supports Windows 11 too)
+
+### Audio Device Control
 
 `SoundVolumeView.exe` (by same developer as `NirCmd.exe`, unfortunately neither open source but incredibly useful)
+
+it is mainly used to get devices uuid, get and set the default device and control volume.
+pyaudio only gives the name; TODO: perhaps pycaw + maybe custom COM script I have may replace this.
 
 ```bat
 rem get list of devices
 SoundVolumeView.exe /scomma list.csv /Columns "Name,Command-Line Friendly ID"
-rem set default output device
+
+rem set default output device by name / uuid
 SoundVolumeView.exe /SetDefault "VB-Cable Input" all
 SoundVolumeView.exe /SetDefault Speakers all
 SoundVolumeView.exe /SetDefault Headphones all
+
+rem set volume
+SoundVolumeView.exe /SetMute "VB-Cable Input" 0
+SoundVolumeView.exe /SetVolume "VB-Cable Input" 100
+
+rem no get volume, using pycaw instead
+rem (see get_system_volume in device_manager_windows.py)
 ```
 
-# MacOS
+## MacOS
+
+### Virtual Audio Drivers
 
 to record audio output, need to:
 ```sh
@@ -116,28 +144,24 @@ pip install pyaudio
 notice I needed to go to `Settings -> Privacy & Security -> Microphone` and add "cursor" (yes the IDE wtf?) to the allowed apps list.
 (need to figure out how to allow python/my specific program)
 
+### Audio Device Control
+
+install `SwitchAudioSource` via homebrew:
 ```sh
 brew install switchaudio-osx
+```
+
+example commands:
+```sh
 # list audio devices
 SwitchAudioSource -a
+
 # set default output device
 SwitchAudioSource -s "BlackHole 2ch"
 SwitchAudioSource -s "MacBook Pro Speakers"
 ```
 
-
-# NOTE
-
-(at least on mac, possibly windows too)
-the recorded volume depends on the virtual device volume
-but also the playing volume depends on the speakers volume
-but also the volume controls only control the default device (which should be the virtual device)
-and it seems at least on mac the virtual device INPUT volume controls the recording volume, but the keyboard shortcuts control only the virtual OUTPUT volume
-so there's a lot to unpack here
-
-(probably keep volume at 100% for the virtual devices)
-
-to set the default device to the virtual device:
+ensure the recording device volume is sufficient:
 ```sh
 SwitchAudioSource -s "MacBook Pro Speakers"
 osascript -e "set volume output volume 100 --100%"
@@ -145,8 +169,7 @@ SwitchAudioSource -s "BlackHole 2ch"
 osascript -e "set volume input volume 100 --100%"
 ```
 
-
-for zen_from_file.py to run in mac libsndfile needs to be installed like so:
+for `zen_from_file.py` to run in mac `libsndfile` needs to be installed like so:
 ```sh
 conda install -c conda-forge libsndfile
 ```
