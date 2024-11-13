@@ -9,3 +9,6 @@ librosa==0.9.2
 keyboard==0.13.5
 comtypes==1.4.8; sys_platform == 'win32'
 pycaw==20240210; sys_platform == 'win32'
+torch==2.0.0; sys_platform == 'win32'
+torch-directml==0.2.0.dev230426; sys_platform == 'win32'
+torch==2.0.1; sys_platform == 'darwin'
