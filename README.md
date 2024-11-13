@@ -85,6 +85,7 @@ cp -r bin dist/.
 - ~~add splash~~ (pyinstaller splash is buggy, skipped)
 - ~~ui~~
 - keyboard shortcuts
+- plausible analytics: https://plausible.io/docs/events-api
 
 # Internals
 
