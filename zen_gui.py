@@ -27,7 +27,7 @@ class ZenGui:
         self.root.resizable(False, False)
         # root.overrideredirect(True)
         self.root.title("Zen Mode Control")
-        self.root.geometry("320x300")  # Set a fixed size for the window
+        self.root.geometry("320x320")  # Set a fixed size for the window
         self.root.iconphoto(True, tk.PhotoImage(file='./img/zen-256.png'))  # Set icon
 
         # Style configuration
@@ -74,6 +74,10 @@ class ZenGui:
         self.vocals_volume_slider.pack(pady=1, padx=20)
         self.vocals_volume_slider.bind("<Button-1>", self.evt_update_slider)
         self.vocals_volume_slider.bind("<B1-Motion>", self.evt_update_slider)
+
+        # Copyright
+        self.copyright_label = ttk.Label(self.root, text="Copyright © 2024 Zen Mode - @high_byte")
+        self.copyright_label.pack(pady=1)
 
     def evt_checkbox(self, event):
         state = self.zen_mode_checkbox.instate(['selected'])

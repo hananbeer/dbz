@@ -2,9 +2,14 @@ import onnx
 import torch
 import numpy as np
 import warnings
+import importlib
 try:
-    import torch_directml
+    # importlib instead of plain import because pyinstaller fails to import this for some reason
+    # AAAHHHH THIS DOES NOT WORK EITHER...
+    torch_directml = importlib.import_module('torch_directml')
+    print('torch_directml found:', torch_directml)
 except ImportError:
+    print('torch_directml not found')
     torch_directml = None
 
 from onnx2pytorch import ConvertModel

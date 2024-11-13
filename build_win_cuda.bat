@@ -1,6 +1,7 @@
 @echo off
 
 if "%CONDA_DEFAULT_ENV:~-8%" == "dbz-cuda" (
+    set EXTRA_FLAGS=
     call build_win_internal.bat cuda %1
     echo Done
 ) else (
