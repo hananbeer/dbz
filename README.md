@@ -1,3 +1,6 @@
+[![Watch the video](./img/thumbnail.png)](https://www.youtube.com/watch?v=HqHCqQX3_Vo)
+
+
 # How It Works
 
 The original audio playback needs to be recorded, processed with AI and finally replaced with AI-processed audio.
